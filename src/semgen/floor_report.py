@@ -5,14 +5,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from semgen.config import ConfigError, load_config
-from semgen.floors import PhecodeFloorPolicy
+from semgen.config import ConfigError
+from semgen.context import build_context
 from semgen.model import Motif
 from semgen.motif_io import MotifError, load_motifs
 from semgen.operators.base import GenContext
 from semgen.operators.concept_lift import concept_lift
-from semgen.snomed import Hierarchy, default_rf2_dir, load_rf2
-from semgen.sources import REPO_ROOT, SourceError, default_phecodex_dir
+from semgen.sources import REPO_ROOT, SourceError
 
 COLUMNS = ("motif_id", "node", "code", "fsn", "decision", "parent", "parent_fsn", "anchors",
            "blocking_descendant", "blocking_fsn", "anchor")
@@ -60,13 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     try:
-        cfg = load_config(args.config)
-        rf2 = args.rf2 or default_rf2_dir()
-        h: Hierarchy = load_rf2(rf2)
-        px = args.phecodex or default_phecodex_dir(cfg.floor_source)
-        floors = PhecodeFloorPolicy.from_config(h, rf2, cfg.floor_source, px)
-        ctx = GenContext(h, cfg, floors)
-        text = rows_to_tsv(floor_report(load_motifs(args.motifs, h), ctx))
+        ctx = build_context(args.config, args.rf2, args.phecodex)
+        text = rows_to_tsv(floor_report(load_motifs(args.motifs, ctx.hierarchy), ctx))
     except (SourceError, FileNotFoundError, ConfigError, MotifError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
