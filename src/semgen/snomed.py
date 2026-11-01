@@ -51,6 +51,8 @@ class Hierarchy:
             if c in active:
                 self._by_fsn.setdefault(term, []).append(c)
         self._memo: dict[str, frozenset[str]] = {}
+        self._children: dict[str, set[str]] | None = None
+        self._desc_memo: dict[str, frozenset[str]] = {}
 
     @classmethod
     def from_maps(
@@ -72,6 +74,8 @@ class Hierarchy:
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
         state["_memo"] = {}
+        state["_children"] = None
+        state["_desc_memo"] = {}
         return state
 
     def parents(self, c: str) -> frozenset[str]:
@@ -114,6 +118,34 @@ class Hierarchy:
 
     def ancestors_or_self(self, c: str) -> frozenset[str]:
         return self.ancestors(c) | {c}
+
+    def descendants_or_self(self, c: str) -> frozenset[str]:
+        """ECL `<< c`: c plus every concept below it (iterative, memoised, activity not filtered)."""
+        if self._children is None:
+            children: dict[str, set[str]] = {}
+            for child, ps in self._parents.items():
+                for p in ps:
+                    children.setdefault(p, set()).add(child)
+            self._children = children
+        children = self._children
+        memo = self._desc_memo
+        stack = [c]
+        while stack:
+            node = stack[-1]
+            if node in memo:
+                stack.pop()
+                continue
+            kids = children.get(node, ())
+            pending = [k for k in kids if k not in memo]
+            if pending:
+                stack.extend(pending)  # IS-A is acyclic, so this terminates
+                continue
+            acc: set[str] = {node}
+            for k in kids:
+                acc |= memo[k]
+            memo[node] = frozenset(acc)
+            stack.pop()
+        return memo[c]
 
     def is_descendant_or_self(self, concept: str, of_: str) -> bool:
         """ECL `concept << of_`."""
@@ -175,6 +207,8 @@ def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -
                 h = pickle.load(fh)
             if isinstance(h, Hierarchy):
                 h._memo = {}
+                h._children = None
+                h._desc_memo = {}
                 return h
         except Exception:
             pass  # corrupt cache: rebuild

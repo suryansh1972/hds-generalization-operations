@@ -96,3 +96,23 @@ def test_real_direction(real_h):
     assert real_h.parents("703228009") == {"254637007"}
     assert real_h.resolve_fsn("Left ventricular ejection fraction (observable entity)") == LVEF
     assert real_h.release == "20260201" and real_h.edition == "International"
+
+
+def test_descendants_or_self(fake_h):
+    assert fake_h.descendants_or_self(DM) == {DM, T1DM, T2DM}
+    assert fake_h.descendants_or_self(MALIG) == {MALIG, MAL_THORAX, BRCA}
+    assert fake_h.descendants_or_self("zzz") == {"zzz"}
+
+
+def test_descendants_pickle_roundtrip(fake_h):
+    import pickle
+
+    fake_h.descendants_or_self(DM)
+    h2 = pickle.loads(pickle.dumps(fake_h))
+    assert h2._children is None and h2._desc_memo == {}
+    assert h2.descendants_or_self(DM) == {DM, T1DM, T2DM}
+
+
+@pytest.mark.snomed
+def test_real_descendants_or_self(real_h):
+    assert len(real_h.descendants_or_self("254637007")) == 36

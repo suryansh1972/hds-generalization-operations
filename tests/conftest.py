@@ -121,3 +121,13 @@ def one_node_motif(code) -> Motif:
         "nodes": [{"id": "P", "type": "Patient", "role": "patient"},
                   {"id": "n1", "type": "Disorder", "code": code, "polarity": "present", "role": "anchor"}],
         "edges": [{"s": "P", "t": "n1", "rel": "has_condition", "prov": "asserted"}]}, None)
+
+
+@pytest.fixture(scope="session")
+def real_icd_map():
+    from semgen.icd10map import load_icd10_map
+
+    d = default_rf2_dir()
+    if not d.exists():
+        pytest.skip(f"RF2 directory not found: {d}")
+    return load_icd10_map(d, "447562003", ("TRUE", "OTHERWISE TRUE"))
