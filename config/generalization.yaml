@@ -1,0 +1,73 @@
+# semgen generalization config.
+# Every value in this file is DRAFT — not clinically approved.
+status: "DRAFT — not clinically approved"
+lvef_convention: ESC2022_lt40
+
+# Floors (D2): a lift target must be descendant-or-self of every applicable floor.
+# No Substance or Observable floors are defined, so those lifts are blocked.
+floors:
+  - "363346000"   # Malignant neoplastic disease
+  - "73211009"    # Diabetes mellitus (DRAFT)
+
+# Attribute flags (D3); an unflagged attribute is treated as concept-dependent.
+attribute_flags:
+  age_at_dx: concept_independent
+  cumulative_dose: concept_dependent
+
+# Value ladders (D5), DRAFT. Rung = [lo, hi] (null = unbounded) using the family
+# `bounds`, or a mapping {lo, hi, lo_closed, hi_closed} for exceptions.
+value_ladders:
+  lvef:
+    unit: "%"
+    bounds: "[)"
+    applies_to_concepts: ["250908004"]   # Left ventricular ejection fraction
+    rungs: [[0, 40], [40, 50], [50, 55], [55, 101], [0, 50], [0, 55]]
+  egfr:
+    unit: "mL/min/1.73m2"
+    bounds: "[)"
+    applies_to_concepts: ["80274001"]    # Glomerular filtration rate
+    rungs: [[0, 15], [15, 30], [30, 45], [45, 60], [60, 90], [90, null],
+            [30, 60], [0, 60]]
+  alt_xuln:
+    unit: "xULN"
+    bounds: "(]"
+    applies_to_concepts: ["364571000119101"]   # ALT
+    rungs:
+      - {lo: 0, hi: 1, lo_closed: true, hi_closed: true}
+      - [1, 3]
+      - [3, 5]
+      - [5, 20]
+      - [20, null]
+      - [3, null]
+      - [1, null]
+
+# Attribute ladders (D5), DRAFT.
+attr_ladders:
+  age:
+    unit: "a"
+    bounds: "[)"
+    applies_to_attr: age_at_dx
+    rungs: [[65, 80], [90, null], [65, null]]
+  cumulative_dose:
+    unit: "mg/m2"
+    bounds: "[)"
+    applies_to_attr: cumulative_dose
+    rungs: [[0, 100], [100, 250], [250, null], [100, null]]
+
+# Time ladder (D6), DRAFT: window in days; unbounded end is always open.
+time_ladder:
+  unit: "d"
+  bounds: "[]"
+  rungs: [[0, 30], [0, 90], [0, 365], [0, null]]
+
+# Relation hierarchy (child: parent), DRAFT.
+relation_parents:
+  administered_drug: exposed_to_drug
+  has_finding: has_observation
+
+protected_roles: [patient, anchor]
+
+negation_policy:
+  allow_drop_absent: false
+
+max_depth: 4
