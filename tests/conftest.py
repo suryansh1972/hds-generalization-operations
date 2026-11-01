@@ -95,3 +95,29 @@ def fake_m2():
 @pytest.fixture(scope="session")
 def real_motifs(real_h):
     return load_motifs(Path(__file__).resolve().parent.parent / "data/motifs/synthetic_motifs.json", real_h)
+
+
+# --- operator fixtures (Task 6) ------------------------------------------------
+from semgen.config import load_config  # noqa: E402
+from semgen.model import Motif  # noqa: E402
+from semgen.operators.base import GenContext  # noqa: E402
+
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "generalization.yaml"
+
+
+@pytest.fixture
+def ctx(fake_h):
+    return GenContext(hierarchy=fake_h, config=load_config(_CONFIG_PATH))
+
+
+@pytest.fixture(scope="session")
+def real_ctx(real_h):
+    return GenContext(hierarchy=real_h, config=load_config(_CONFIG_PATH))
+
+
+def one_node_motif(code) -> Motif:
+    return parse_motif({
+        "motif_id": "ONE", "anchor": "n1",
+        "nodes": [{"id": "P", "type": "Patient", "role": "patient"},
+                  {"id": "n1", "type": "Disorder", "code": code, "polarity": "present", "role": "anchor"}],
+        "edges": [{"s": "P", "t": "n1", "rel": "has_condition", "prov": "asserted"}]}, None)
