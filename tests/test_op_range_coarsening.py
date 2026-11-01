@@ -107,8 +107,8 @@ def test_no_ladder_blocked_and_pure(ctx, fake_m1):
                for b in res.blocked)
 
 
-def test_registered_last(ctx):
-    assert ALL_OPERATORS[-1] is range_coarsening
+def test_registered_after_attribute_removal(ctx):
+    assert ALL_OPERATORS.index(range_coarsening) == 2
 
 
 def test_full_change_record(ctx, fake_m1):
