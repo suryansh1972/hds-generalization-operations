@@ -126,6 +126,9 @@ def parse_motif(raw: dict, h: Hierarchy | None) -> Motif:
     for n in nodes:
         if n.polarity != "absent":
             continue
+        if n.value is not None or n.attrs:
+            raise MotifError(
+                f"motif {mid}: absent node {n.id!r} must not carry value or attrs (absent is code-only, D11)")
         inc = [e for e in edges if n.id in (e.s, e.t)]
         if len(inc) != 1 or inc[0].s != PATIENT_ID or inc[0].t != n.id:
             raise MotifError(

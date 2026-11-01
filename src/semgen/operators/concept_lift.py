@@ -21,6 +21,12 @@ def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
         def block(reason: str, **extra) -> None:
             blocked.append(Blocked(OP, node.id, reason, {"code": code, **extra}))
 
+        if not h.is_active(code):
+            block("unknown_concept")
+            continue
+        if not h.parents(code):
+            block("no_parent")
+            continue
         if node.value is not None:
             block("carries_value")
             continue

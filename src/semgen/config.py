@@ -184,6 +184,12 @@ def _parse(raw: dict[str, Any]) -> GenConfig:
     value_ladders = tuple(_build_ladder(k, v) for k, v in raw["value_ladders"].items())
     attr_ladders = tuple(_build_ladder(k, v) for k, v in raw["attr_ladders"].items())
     time_ladder = _build_ladder("time", raw["time_ladder"], time=True)
+    if raw["negation_policy"]["allow_drop_absent"] is not False:
+        raise ConfigError("negation_policy.allow_drop_absent: only false is supported (not supported: true)")
+    if set(raw["protected_roles"]) != {"patient", "anchor"}:
+        raise ConfigError("protected_roles must be exactly {patient, anchor}")
+    if not str(raw["status"]).startswith("DRAFT"):
+        raise ConfigError(f"status {raw['status']!r} must start with 'DRAFT'")
     parents = dict(raw["relation_parents"])
     _check_cycles(parents)
     return GenConfig(

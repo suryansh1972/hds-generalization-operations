@@ -10,6 +10,8 @@ from semgen.export import run_header, write_lattice
 from semgen.lattice import enumerate_lattice
 
 REPO = Path(__file__).resolve().parents[1]
+CFG = str(REPO / "config" / "generalization.yaml")
+MOTIFS = str(REPO / "data" / "motifs" / "synthetic_motifs.json")
 R11_KEYS = {"snomed_release", "snomed_edition", "config_sha256", "config_status", "lvef_convention",
             "temporal_semantics", "absent_semantics", "max_depth", "semgen_version", "floor_source",
             "phecode_level", "icd10_map_refset", "icd10_map_release", "phecodex_commit",
@@ -18,7 +20,7 @@ R11_KEYS = {"snomed_release", "snomed_edition", "config_sha256", "config_status"
 
 def test_files_and_header(tmp_path, ctx, fake_m1):
     lat = enumerate_lattice(fake_m1, ctx, 2)
-    paths = write_lattice(lat, "M1", tmp_path, run_header(ctx, "config/generalization.yaml", 2))
+    paths = write_lattice(lat, "M1", tmp_path, run_header(ctx, CFG, 2))
     hdr = json.loads(paths["run_header"].read_text())
     assert hdr["temporal_semantics"] == "certain" and hdr["config_status"].startswith("DRAFT") and len(hdr["config_sha256"]) == 64
     assert hdr["floor_source"] == "phecodex" and len(hdr["phecodex_sha256"]) == 3 and hdr["ccsr_check"] == "unavailable"
@@ -28,7 +30,7 @@ def test_files_and_header(tmp_path, ctx, fake_m1):
 
 
 def test_byte_identical_reruns(tmp_path, ctx, fake_m1):
-    h = run_header(ctx, "config/generalization.yaml", 2)
+    h = run_header(ctx, CFG, 2)
     a = write_lattice(enumerate_lattice(fake_m1, ctx, 2), "M1", tmp_path / "a", h)
     b = write_lattice(enumerate_lattice(fake_m1, ctx, 2), "M1", tmp_path / "b", h)
     assert all(a[k].read_bytes() == b[k].read_bytes() for k in a)
@@ -36,12 +38,12 @@ def test_byte_identical_reruns(tmp_path, ctx, fake_m1):
 
 def _written(tmp_path, ctx, fake_m1):
     lat = enumerate_lattice(fake_m1, ctx, 2)
-    h = run_header(ctx, "config/generalization.yaml", 2)
+    h = run_header(ctx, CFG, 2)
     return lat, write_lattice(lat, "M1", tmp_path, h), h
 
 
 def test_header_exact_keys(ctx):
-    h = run_header(ctx, "config/generalization.yaml", 3)
+    h = run_header(ctx, CFG, 3)
     assert set(h) == R11_KEYS
     assert h["max_depth"] == 3 and h["source_licences"] == {"phecodex": ctx.config.floor_source.licence}
     assert h["phecodex_sha256"] == dict(ctx.config.floor_source.files)
@@ -65,7 +67,7 @@ def test_blocked_order_independent_of_insertion(tmp_path, ctx, fake_m1):
     from dataclasses import replace
     lat = enumerate_lattice(fake_m1, ctx, 2)
     rev = replace(lat, blocked=list(reversed(lat.blocked)), edges=list(reversed(lat.edges)))
-    h = run_header(ctx, "config/generalization.yaml", 2)
+    h = run_header(ctx, CFG, 2)
     a = write_lattice(lat, "M1", tmp_path / "a", h)
     b = write_lattice(rev, "M1", tmp_path / "b", h)
     assert all(a[k].read_bytes() == b[k].read_bytes() for k in a)
@@ -86,7 +88,7 @@ def test_multi_change_edge_keeps_order(tmp_path, ctx, fake_m1):
     ch = e.changes[0]
     two = (ch, replace(ch, target="zzz"), replace(ch, target="aaa"))
     lat2 = replace(lat, edges=[replace(e, changes=two)] + lat.edges[1:])
-    p = write_lattice(lat2, "M1", tmp_path, run_header(ctx, "config/generalization.yaml", 1))
+    p = write_lattice(lat2, "M1", tmp_path, run_header(ctx, CFG, 1))
     rows = [json.loads(l) for l in p["edges"].read_text().splitlines()]
     row = next(r for r in rows if r["parent"] == e.parent and r["child"] == e.child)
     assert [c["target"] for c in row["changes"]] == [ch.target, "zzz", "aaa"]
@@ -106,14 +108,14 @@ def test_cli_missing_out_is_usage_error():
 
 
 def test_cli_bad_config_exit_1():
-    r = _cli("run", "--motifs", "data/motifs/synthetic_motifs.json", "--config", "/nonexistent.yaml", "--out", "/tmp/never")
+    r = _cli("run", "--motifs", MOTIFS, "--config", "/nonexistent.yaml", "--out", "/tmp/never")
     assert r.returncode == 1 and r.stderr.strip() and "Traceback" not in r.stderr
 
 
 @pytest.mark.snomed
 @pytest.mark.phecodex
 def test_cli_end_to_end(tmp_path, real_ctx):
-    r = _cli("run", "--motifs", "data/motifs/synthetic_motifs.json", "--config", "config/generalization.yaml",
+    r = _cli("run", "--motifs", MOTIFS, "--config", CFG,
              "--depth", "1", "--out", str(tmp_path))
     assert r.returncode == 0, r.stderr
     lines = r.stdout.strip().splitlines()
@@ -128,23 +130,25 @@ def test_unsafe_motif_id_rejected(tmp_path, ctx, fake_m1, bad):
     from semgen.motif_io import MotifError
     lat = enumerate_lattice(fake_m1, ctx, 0)
     with pytest.raises(MotifError):
-        write_lattice(lat, bad, tmp_path / "out", run_header(ctx, "config/generalization.yaml", 0))
+        write_lattice(lat, bad, tmp_path / "out", run_header(ctx, CFG, 0))
     assert not list(tmp_path.rglob("*.jsonl"))
 
 
 def test_normal_motif_id_ok(tmp_path, ctx, fake_m1):
-    p = write_lattice(enumerate_lattice(fake_m1, ctx, 0), "M-1_a.b", tmp_path, run_header(ctx, "config/generalization.yaml", 0))
+    p = write_lattice(enumerate_lattice(fake_m1, ctx, 0), "M-1_a.b", tmp_path, run_header(ctx, CFG, 0))
     assert p["candidates"].parent == tmp_path / "M-1_a.b"
 
 
-def test_cli_duplicate_ids_exit_1_writes_nothing(tmp_path):
-    raw = json.loads((REPO / "data/motifs/synthetic_motifs.json").read_text())
+@pytest.mark.snomed
+@pytest.mark.phecodex
+def test_cli_duplicate_ids_exit_1_writes_nothing(tmp_path, real_ctx):
+    raw = json.loads(Path(MOTIFS).read_text())
     items = raw if isinstance(raw, list) else raw[next(k for k, v in raw.items() if isinstance(v, list))]
     dup = [items[0], items[0]]
     f = tmp_path / "dup.json"
     f.write_text(json.dumps(dup if isinstance(raw, list) else {next(k for k, v in raw.items() if isinstance(v, list)): dup}))
     out = tmp_path / "out"
-    r = _cli("run", "--motifs", str(f), "--config", "config/generalization.yaml", "--out", str(out))
+    r = _cli("run", "--motifs", str(f), "--config", CFG, "--out", str(out))
     assert r.returncode == 1 and "Traceback" not in r.stderr and "duplicate" in r.stderr
     assert not out.exists() or not list(out.rglob("*"))
 

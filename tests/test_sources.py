@@ -7,7 +7,7 @@ import yaml
 from semgen.config import ConfigError, FloorSourceConfig, load_config
 from semgen.sources import REPO_ROOT, SourceError, default_phecodex_dir, fetch_phecodex, verify_phecodex
 
-CFG = "config/generalization.yaml"
+CFG = str(Path(__file__).resolve().parents[1] / "config" / "generalization.yaml")
 COMMIT = "a" * 40
 BLOBS = {"a.csv": b"phecode,code\n1,2\n", "b.csv": b"x,y\n", "c.csv": b"z\n"}
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from semgen.canonical import motif_hash
+from semgen.canonical import canonical_json, motif_hash
 from semgen.model import PATIENT_ID, Motif
 from semgen.operators import ALL_OPERATORS
 from semgen.operators.base import Blocked, ChangeRecord, GenContext
@@ -65,12 +65,33 @@ def guard(parent: Motif, child: Motif, change: ChangeRecord | None, ctx: GenCont
         pe = parent.edge(e.s, e.t)
         if pe is not None and pe != e:
             raise _violation("context_edge_changed", f"{e.s}->{e.t}")
-    if change is not None and change.op == "concept_lift":
-        if not ctx.hierarchy.is_active(change.after):
-            raise _violation("inactive_target", str(change.after), f"node {change.target}")
-        d = ctx.floors.check_lift(change.before, change.after)
+    # A NEW context edge (no parent counterpart) is allowed here on purpose: check_order
+    # rejects it as ``extra_edge``, so it can never reach the lattice.
+    # Code changes are derived from the parent/child diff, never from the operator's ChangeRecord.
+    h = ctx.hierarchy
+    for nid in sorted(parent.node_ids & child.node_ids):
+        pn, cn = parent.node(nid), child.node(nid)
+        if pn.code == cn.code:
+            continue
+        what = f"node {nid}" + (f" via {change.op}" if change is not None else "")
+        if pn.role == "context":
+            raise _violation("context_code_changed", nid, what)
+        if pn.polarity != "present":
+            continue  # absent nodes are covered by absent_node_changed
+        if pn.type != "Disorder":
+            raise _violation("lift_type_not_allowed", nid, f"type={pn.type}; {what}")
+        if pn.code is None or cn.code is None or cn.code not in h.parents(pn.code):
+            raise _violation("not_direct_parent", f"{pn.code}->{cn.code}", what)
+        if not h.is_active(cn.code):
+            raise _violation("inactive_target", str(cn.code), what)
+        d = ctx.floors.check_lift(pn.code, cn.code)
         if not d.ok:
-            raise _violation("floor_violation", f"{change.before}->{change.after}", f"reason={d.reason}")
+            raise _violation("floor_violation", f"{pn.code}->{cn.code}", f"reason={d.reason}; {what}")
+
+
+def _same_motif(stored: Motif, new: Motif, h: str) -> None:
+    if canonical_json(stored) != canonical_json(new):
+        raise GeneralizationOrderError(f"hash collision on {h}: distinct motifs share a hash")
 
 
 def neighbors(motif: Motif, ctx: GenContext) -> tuple[list[Neighbor], list[Blocked]]:
@@ -90,6 +111,7 @@ def neighbors(motif: Motif, ctx: GenContext) -> tuple[list[Neighbor], list[Block
                 raise GeneralizationOrderError(f"{r.reason} at {r.where}: {mv.change}")
             if h in found:
                 n = found[h]
+                _same_motif(n.child, mv.child, h)
                 found[h] = Neighbor(n.child, h, n.changes + (mv.change,))
             else:
                 found[h] = Neighbor(mv.child, h, (mv.change,))
@@ -137,7 +159,9 @@ def enumerate_lattice(root: Motif, ctx: GenContext, max_depth: int | None = None
             ns, bl = neighbors(candidates[h].motif, ctx)
             blocked.extend((h, b) for b in bl)
             for n in ns:
-                if n.child_hash not in candidates:
+                if n.child_hash in candidates:
+                    _same_motif(candidates[n.child_hash].motif, n.child, n.child_hash)
+                else:
                     candidates[n.child_hash] = Candidate(n.child_hash, depth + 1, n.child)
                     nxt.append(n.child_hash)
                 if (h, n.child_hash) not in seen_pairs:

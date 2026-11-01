@@ -2,10 +2,10 @@
 
 A Python proof of concept that takes a small graph pattern (a "motif") describing a kind of patient and
 enumerates every provably more general version of it, as a lattice, using SNOMED CT as the concept
-hierarchy. The method is written up in `clinician-free-generalization.md` (the methodology document). That
-file is an external design document in the HDX workspace
-(`/Users/suryanshshivaprasad/Documents/HDX/clinician-free-generalization.md`, the folder that contains the
-`semgen` repository); it is not part of this repository. The staged decisions for the floors are in
+hierarchy. The methodology is `docs/semantic-generalization-methodology.md`, amended by the two plans below.
+The Stage 1 floor design comes from the external document `clinician-free-generalization.md` in the HDX
+workspace (`/Users/suryanshshivaprasad/Documents/HDX/clinician-free-generalization.md`, outside this
+repository), which is cited only as the source of that design. The staged decisions for the floors are in
 `docs/plans/stage1-phecodex-floors.md` and the build plan is `docs/plans/semantic-generalization-implementation.md`.
 
 semgen does **no support counting, no utility scoring and no disclosure control**, and it makes **no
@@ -30,6 +30,7 @@ Override with environment variables:
 | Variable | Meaning |
 |---|---|
 | `SEMGEN_RF2_DIR` | the RF2 `Snapshot/Terminology` folder (the ICD-10 map is found at `../Refset/Map`) |
+| `SEMGEN_CACHE_DIR` | folder for the parsed-RF2 cache (default `<repo>/data/cache`, independent of the current directory) |
 | `SEMGEN_PHECODEX_DIR` | folder holding the three PhecodeX files (default `data/external/phecodex/<commit>`) |
 
 ## Running tests
@@ -107,6 +108,8 @@ Each blocked move is written to `blocked.jsonl` with its reason.
 | `outside_floor` | concept lift | The parent has at least one active descendant that is not inside every PhecodeX anchor of the node's concept, so lifting would leave the clinically meaningful group. `detail` names the blocking descendant and anchor |
 | `unmapped` | concept lift | The concept has no usable SNOMED to ICD-10 to PhecodeX mapping, so no floor can be derived. Fail-closed |
 | `inactive_parent` | concept lift | The parent concept is inactive in the release |
+| `unknown_concept` | concept lift | The node's code is not an active concept in the loaded release |
+| `no_parent` | concept lift | The concept is active but has no IS-A parent (a root), so there is nothing to lift to |
 | `no_floor` | concept lift | The node is not a Disorder (Substance, Observable, Procedure, Finding); Stage 1 has no floor source for these |
 | `carries_value` | concept lift | The node has a measurement value, which only has meaning for its exact concept |
 | `concept_dependent_attr` | concept lift | The node has an attribute whose meaning depends on the concept (or an unflagged one) |

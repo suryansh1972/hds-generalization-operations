@@ -153,3 +153,21 @@ def test_absent_none_mismatch_rejected(ctx, fake_m2):
 def test_present_none_handling(ctx, fake_m1):
     assert check_order(fake_m1, _n2(fake_m1, None), ctx).ok
     bad(ctx, _n2(fake_m1, None), fake_m1, "concept_not_broader")
+
+
+def _n2v(m, value):
+    return m.replace_node(m.node("n2").model_copy(update={"value": value}))
+
+
+def test_absent_value_widened_rejected(ctx, fake_m2):
+    narrow, wide = Interval(lo=1, hi=2, unit="%"), Interval(lo=0, hi=5, unit="%")
+    bad(ctx, _n2v(fake_m2, narrow), _n2v(fake_m2, wide), "absent_constraint_changed")
+
+
+def test_absent_value_removed_rejected(ctx, fake_m2):
+    bad(ctx, _n2v(fake_m2, Interval(lo=1, hi=2, unit="%")), _n2v(fake_m2, None), "absent_constraint_changed")
+
+
+def test_absent_equal_value_passes(ctx, fake_m2):
+    v = Interval(lo=1, hi=2, unit="%")
+    assert check_order(_n2v(fake_m2, v), _n2v(fake_m2, v), ctx).ok

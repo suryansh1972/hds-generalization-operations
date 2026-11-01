@@ -145,3 +145,12 @@ def test_real_m2_dm_blocked(real_ctx, real_motifs):
     r = concept_lift(_m(real_motifs, "M2"), real_ctx)
     (b,) = blk(r, "n1", "outside_floor")
     assert b.detail["parent"] == DM and b.detail["blocking_descendant"] == "105401000119101"
+
+
+def test_unknown_and_parentless_codes_are_blocked(ctx):
+    unknown = concept_lift(one_node_motif("999999999"), ctx)
+    (b,) = blk(unknown, "n1", "unknown_concept")
+    assert b.detail == {"code": "999999999"} and not unknown.moves
+    root = concept_lift(one_node_motif(ROOT), ctx)
+    (b,) = blk(root, "n1", "no_parent")
+    assert b.detail == {"code": ROOT} and not root.moves

@@ -62,6 +62,8 @@ def check_order(specific: Motif, general: Motif, ctx: GenContext) -> OrderResult
             return _fail("polarity_changed", nid)
         if (reason := _code_reason(s, g, ctx)) is not None:
             return _fail(reason, nid)
+        if g.polarity == "absent" and (s.value != g.value or s.attrs != g.attrs):
+            return _fail("absent_constraint_changed", nid)
         if (reason := _contained(g.value, s.value, "value_added", "value_not_contained")) is not None:
             return _fail(reason, nid)
         for name in sorted(g.attrs):

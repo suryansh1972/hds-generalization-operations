@@ -58,7 +58,7 @@ def test_from_config_missing_files_raises(tmp_path, fake_h):
     from semgen.config import load_config
     src = load_config(Path(__file__).parent.parent / "config" / "generalization.yaml").floor_source
     with pytest.raises(SourceError):
-        PhecodeFloorPolicy.from_config(fake_h, "tests/fixtures/icd10map/Terminology", src, tmp_path)
+        PhecodeFloorPolicy.from_config(fake_h, str(Path(__file__).resolve().parent / "fixtures" / "icd10map" / "Terminology"), src, tmp_path)
 
 
 # --- policy ------------------------------------------------------------------

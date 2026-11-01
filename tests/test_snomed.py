@@ -3,7 +3,7 @@ import pytest
 from semgen.snomed import FsnError, load_rf2
 from tests.conftest import *  # noqa: F401,F403  (constants)
 
-FIX = "tests/fixtures/rf2"
+FIX = str(__import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "rf2")
 
 
 def test_inferred_active_isa_only(tmp_path):

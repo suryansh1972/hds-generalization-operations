@@ -19,7 +19,8 @@ DEFAULT_RF2_DIR = Path(
     "/Users/suryanshshivaprasad/Documents/HDX/SnomedCT_InternationalRF2_PRODUCTION_20260201T120000Z"
     "/Snapshot/Terminology"
 )
-DEFAULT_CACHE_DIR = Path("data/cache")
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CACHE_DIR = Path(os.environ.get("SEMGEN_CACHE_DIR") or REPO_ROOT / "data" / "cache")
 
 
 class FsnError(Exception):

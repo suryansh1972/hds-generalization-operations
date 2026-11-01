@@ -51,7 +51,7 @@ def test_self_match(ctx, fake_m1, fake_m2):
 
 
 def test_matcher_not_imported_by_production():
-    import pathlib; assert not any("tests.support" in p.read_text() for p in pathlib.Path("src").rglob("*.py"))
+    import pathlib; assert not any("tests.support" in p.read_text() for p in (pathlib.Path(__file__).resolve().parents[1] / "src").rglob("*.py"))
 
 
 # --- extras ---------------------------------------------------------------------------------

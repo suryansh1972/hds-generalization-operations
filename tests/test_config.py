@@ -6,7 +6,9 @@ import yaml
 from semgen.config import ConfigError, config_sha256, load_config
 from semgen.model import Interval
 
-CFG = "config/generalization.yaml"
+from pathlib import Path
+
+CFG = str(Path(__file__).resolve().parents[1] / "config" / "generalization.yaml")
 
 
 def test_loads_and_is_draft():
@@ -81,6 +83,9 @@ def test_config_sha256():
     (lambda d: d["value_ladders"]["lvef"]["rungs"].append({"lo": 0, "hi": 5, "unit": "mg"}), "unit"),
     (lambda d: d["floor_source"].update({"map_rules": []}), "floor_source"),
     (lambda d: d["floor_source"].update({"icd10_map_refset": "44756x003"}), "floor_source"),
+    (lambda d: d["negation_policy"].update({"allow_drop_absent": True}), "not supported"),
+    (lambda d: d.update(protected_roles=["patient"]), "protected_roles"),
+    (lambda d: d.update(status="FINAL"), "DRAFT"),
 ])
 def test_invalid_configs_fail_at_load(tmp_path, mutate, msg):
     d = yaml.safe_load(open(CFG)); mutate(d); p = tmp_path / "c.yaml"; p.write_text(yaml.safe_dump(d))

@@ -1,10 +1,12 @@
+from pathlib import Path
+
 import pytest
 
 from semgen.icd10map import load_icd10_map
 from semgen.snomed import default_rf2_dir
 from semgen.sources import SourceError
 
-TERM = "tests/fixtures/icd10map/Terminology"
+TERM = str(Path(__file__).resolve().parent / "fixtures" / "icd10map" / "Terminology")
 RULES = ("TRUE", "OTHERWISE TRUE")
 REFSET = "447562003"
 

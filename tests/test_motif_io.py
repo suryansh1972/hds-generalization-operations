@@ -21,6 +21,15 @@ def test_absent_node_must_be_patient_leaf():
     with pytest.raises(MotifError, match="absent"): parse_motif(d, None)
 
 
+@pytest.mark.parametrize("extra", [
+    {"value": {"interval": [1, 2], "unit": "%"}},
+    {"attrs": {"age_at_dx": {"interval": [1, 2], "unit": "a"}}},
+])
+def test_absent_node_with_value_or_attrs_rejected(extra):
+    d = base(); d["nodes"][2].update(extra)
+    with pytest.raises(MotifError, match="absent"): parse_motif(d, None)
+
+
 @pytest.mark.parametrize("mutate,msg", [
     (lambda d: d["edges"].append({"s": "P", "t": "zz", "rel": "r", "prov": "asserted"}), "unknown node"),
     (lambda d: d.update(anchor="nX"), "anchor"),
