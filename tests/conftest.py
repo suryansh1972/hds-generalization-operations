@@ -131,3 +131,35 @@ def real_icd_map():
     if not d.exists():
         pytest.skip(f"RF2 directory not found: {d}")
     return load_icd10_map(d, "447562003", ("TRUE", "OTHERWISE TRUE"))
+
+
+# --- floor fixtures (Stage 1 Task 3) -------------------------------------------
+from semgen.floors import PhecodeFloorPolicy  # noqa: E402
+from semgen.icd10map import Icd10Map  # noqa: E402
+from semgen.phecodex import PhecodeX  # noqa: E402
+
+FAKE_ICD = {BRCA: {"C50.9"}, MAL_THORAX: {"C50.9"}, NEO_BREAST: {"D24"}, T2DM: {"E11.9"}, T1DM: {"E10"},
+            DM: {"E14"}, MALIG: {"C80"}, CKD: {"N18.9"}, DISEASE: set()}
+FAKE_PX = {"C50.9": {"CA_105", "CA_130"}, "D24": {"BI_999"}, "E11.9": {"EM_202", "EM_202.2"},
+           "E10": {"EM_202", "EM_202.1"}, "E14": {"EM_202"}, "C80": {"CA_130"}, "N18": {"GU_582", "GU_582.2"}}
+FAKE_ROLLUP = {"CA_105.1": {"CA_105"}, "EM_202.1": {"EM_202"}, "EM_202.2": {"EM_202"},
+               "GU_582.2": {"GU_582"}, "GU_582.21": {"GU_582.2"}}
+
+
+@pytest.fixture
+def fake_floors(fake_h):
+    return PhecodeFloorPolicy(fake_h, Icd10Map.from_maps(FAKE_ICD),
+                              PhecodeX.from_maps(FAKE_PX, FAKE_ROLLUP), "first_decimal")
+
+
+@pytest.fixture(scope="session")
+def real_floors(real_h):
+    from semgen.sources import default_phecodex_dir
+
+    src = load_config(_CONFIG_PATH).floor_source
+    d = default_rf2_dir()
+    px_dir = default_phecodex_dir(src)
+    missing = [n for n in sorted(src.files) if not (px_dir / n).is_file()]
+    if missing:   # only a MISSING file skips; a tampered file raises SourceError and fails the tests
+        pytest.skip(f"PhecodeX files missing from {px_dir}: {missing}")
+    return PhecodeFloorPolicy.from_config(real_h, d, src, px_dir)

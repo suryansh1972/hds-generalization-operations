@@ -23,5 +23,5 @@ build-backend = "hatchling.build"
 packages = ["src/semgen"]
 
 [tool.pytest.ini_options]
-markers = ["snomed: needs local RF2"]
+markers = ["snomed: needs local RF2", "phecodex: needs fetched PhecodeX files"]
 testpaths = ["tests"]
