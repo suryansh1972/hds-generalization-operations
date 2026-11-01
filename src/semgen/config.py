@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 from typing import Any, Literal
 
@@ -55,12 +56,46 @@ class RelationHierarchy(BaseModel):
         return False
 
 
+class FloorSourceConfig(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["phecodex"]
+    commit: str
+    files: dict[str, str]
+    phecode_level: Literal["first_decimal", "integer"] = "first_decimal"
+    icd10_map_refset: str = "447562003"
+    map_rules: tuple[str, ...] = ("TRUE", "OTHERWISE TRUE")
+    licence: str = "unconfirmed"
+
+
+_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
+_SHA_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _build_floor_source(raw: Any) -> FloorSourceConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("floor_source must be a mapping")
+    try:
+        src = FloorSourceConfig.model_validate(raw)
+    except ValidationError as e:
+        raise ConfigError(f"invalid floor_source: {e}") from e
+    if not _COMMIT_RE.fullmatch(src.commit):
+        raise ConfigError(f"floor_source commit {src.commit!r} is not 40 lowercase hex")
+    if not src.files:
+        raise ConfigError("floor_source files must not be empty")
+    for name, sha in src.files.items():
+        if not _SHA_RE.fullmatch(sha):
+            raise ConfigError(f"floor_source sha256 for {name!r} is not 64 lowercase hex")
+    return src
+
+
 class GenConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     status: str
     lvef_convention: str
     floors: tuple[str, ...]
+    floor_source: FloorSourceConfig
     attribute_flags: dict[str, Literal["concept_dependent", "concept_independent"]]
     value_ladders: tuple[Ladder, ...]
     attr_ladders: tuple[Ladder, ...]
@@ -141,6 +176,7 @@ def _check_cycles(parents: dict[str, str]) -> None:
 
 
 def _parse(raw: dict[str, Any]) -> GenConfig:
+    floor_source = _build_floor_source(raw["floor_source"])
     floors = tuple(str(f) for f in raw["floors"])
     for f in floors:
         if not f.isascii() or not f.isdigit():
@@ -153,6 +189,7 @@ def _parse(raw: dict[str, Any]) -> GenConfig:
     _check_cycles(parents)
     return GenConfig(
         status=raw["status"], lvef_convention=raw["lvef_convention"], floors=floors,
+        floor_source=floor_source,
         attribute_flags=raw["attribute_flags"], value_ladders=value_ladders,
         attr_ladders=attr_ladders, time_ladder=time_ladder,
         relations=RelationHierarchy(parents=parents),

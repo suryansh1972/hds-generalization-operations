@@ -3,6 +3,20 @@
 status: "DRAFT — not clinically approved"
 lvef_convention: ESC2022_lt40
 
+# Floor source (Stage 1): floors are derived from published sources (SNOMED -> ICD-10
+# -> PhecodeX), not hand-picked. Licence unconfirmed. POC only.
+floor_source:
+  kind: phecodex
+  commit: "6c5c6f787651c06351fe5a7c558a0a05c7a2f8a7"
+  files:
+    phecodeX_R_map_ICD_10_WHO.csv: "ba2cf94fdef67d7ea8fae63f12d38d4a5c389f579c257f189d05fc033e39c52a"
+    phecodeX_R_rollup_map.csv: "b57311cd22a6adc3ac1595daa7261b0de761eb4b4010acf324fd99792a05bc6e"
+    phecodeX_R_labels.csv: "7ca090f8528efdddd8a7d2aed55cfd3ba739a4fffd8a45632a8c31a587dfad84"
+  phecode_level: first_decimal
+  icd10_map_refset: "447562003"
+  map_rules: ["TRUE", "OTHERWISE TRUE"]
+  licence: unconfirmed
+
 # Floors (D2): a lift target must be descendant-or-self of every applicable floor.
 # No Substance or Observable floors are defined, so those lifts are blocked.
 floors:

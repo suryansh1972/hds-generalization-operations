@@ -12,3 +12,4 @@ __pycache__/
 # generated data (SNOMED cache, run outputs)
 data/cache/
 runs/
+data/external/
