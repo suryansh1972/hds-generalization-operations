@@ -5,10 +5,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from semgen.config import load_config
+from semgen.config import ConfigError, load_config
 from semgen.floors import PhecodeFloorPolicy
 from semgen.model import Motif
-from semgen.motif_io import load_motifs
+from semgen.motif_io import MotifError, load_motifs
 from semgen.operators.base import GenContext
 from semgen.operators.concept_lift import concept_lift
 from semgen.snomed import Hierarchy, default_rf2_dir, load_rf2
@@ -20,9 +20,7 @@ COLUMNS = ("motif_id", "node", "code", "fsn", "decision", "parent", "parent_fsn"
 
 def _anchors(ctx: GenContext, code: str, decision: str) -> str:
     if decision in {"allowed", "outside_floor", "inactive_parent", "unmapped"}:   # floor was actually consulted
-        fn = getattr(ctx.floors, "anchors", None)
-        if fn is not None:
-            return ";".join(sorted(fn(code)))
+        return ";".join(sorted(ctx.floors.anchors(code)))
     return ""
 
 
@@ -69,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         floors = PhecodeFloorPolicy.from_config(h, rf2, cfg.floor_source, px)
         ctx = GenContext(h, cfg, floors)
         text = rows_to_tsv(floor_report(load_motifs(args.motifs, h), ctx))
-    except (SourceError, FileNotFoundError) as e:
+    except (SourceError, FileNotFoundError, ConfigError, MotifError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     if args.out:

@@ -67,7 +67,8 @@ def test_mapped_child_never_moves_to_inactive_parent(fake_h, ctx):
     from semgen.phecodex import PhecodeX
     pol = PhecodeFloorPolicy(fake_h, Icd10Map.from_maps({RA: {"E14"}}),
                              PhecodeX.from_maps({"E14": {"EM_202"}}, {}), "first_decimal")
-    assert pol.check_lift(RA, RA_OLD_PARENT).ok       # vacuous approval: only the guard protects
+    d = pol.check_lift(RA, RA_OLD_PARENT)             # policy fails closed on inactive parents
+    assert not d.ok and d.reason == "inactive_parent"
     r = concept_lift(one_node_motif(RA), GenContext(fake_h, ctx.config, pol))
     assert RA_OLD_PARENT not in _lifts(r, "n1")
     (b,) = blk(r, "n1", "inactive_parent")

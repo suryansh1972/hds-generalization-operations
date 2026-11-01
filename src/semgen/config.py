@@ -81,6 +81,10 @@ def _build_floor_source(raw: Any) -> FloorSourceConfig:
         raise ConfigError(f"invalid floor_source: {e}") from e
     if not _COMMIT_RE.fullmatch(src.commit):
         raise ConfigError(f"floor_source commit {src.commit!r} is not 40 lowercase hex")
+    if not src.map_rules:
+        raise ConfigError("floor_source map_rules must not be empty")
+    if not src.icd10_map_refset.isdigit():
+        raise ConfigError(f"floor_source icd10_map_refset {src.icd10_map_refset!r} must be all digits")
     if not src.files:
         raise ConfigError("floor_source files must not be empty")
     for name, sha in src.files.items():

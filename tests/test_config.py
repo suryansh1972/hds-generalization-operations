@@ -79,6 +79,8 @@ def test_config_sha256():
     (lambda d: d["time_ladder"]["rungs"].append([-5, 30]), "negative"),
     (lambda d: d["relation_parents"].update({"exposed_to_drug": "administered_drug"}), "cycle"),
     (lambda d: d["value_ladders"]["lvef"]["rungs"].append({"lo": 0, "hi": 5, "unit": "mg"}), "unit"),
+    (lambda d: d["floor_source"].update({"map_rules": []}), "floor_source"),
+    (lambda d: d["floor_source"].update({"icd10_map_refset": "44756x003"}), "floor_source"),
 ])
 def test_invalid_configs_fail_at_load(tmp_path, mutate, msg):
     d = yaml.safe_load(open(CFG)); mutate(d); p = tmp_path / "c.yaml"; p.write_text(yaml.safe_dump(d))

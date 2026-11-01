@@ -2,6 +2,7 @@ import pytest
 
 from semgen.icd10map import load_icd10_map
 from semgen.snomed import default_rf2_dir
+from semgen.sources import SourceError
 
 TERM = "tests/fixtures/icd10map/Terminology"
 RULES = ("TRUE", "OTHERWISE TRUE")
@@ -62,3 +63,13 @@ def test_real_targets(real_icd_map):
     assert real_icd_map.targets("405749004") == set()
     assert real_icd_map.targets("69896004") == {"M06.99"}
     assert real_icd_map.release == "20260201"
+
+
+def test_wrong_refset_raises_source_error():
+    with pytest.raises(SourceError, match="447562099"):
+        load_icd10_map(TERM, "447562099", RULES)
+
+
+def test_wrong_rules_raises_source_error():
+    with pytest.raises(SourceError, match="True"):
+        load_icd10_map(TERM, REFSET, ("True",))

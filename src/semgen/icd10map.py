@@ -6,6 +6,8 @@ from pathlib import Path
 
 import polars as pl
 
+from semgen.sources import SourceError
+
 MAP_GLOB = "der2_iisssccRefset_ExtendedMapSnapshot_*_*.txt"
 
 
@@ -50,6 +52,10 @@ def load_icd10_map(terminology_dir: str | Path, refset_id: str, rules: tuple[str
         & pl.col("mapTarget").is_not_null()
         & (pl.col("mapTarget") != "")
     )
+    if df.height == 0:
+        raise SourceError(
+            f"no usable ICD-10 map rows in {path} for refset {refset_id!r} with rules {tuple(rules)!r}; "
+            "check floor_source.icd10_map_refset and floor_source.map_rules")
     acc: dict[str, set[str]] = {}
     for c, t in zip(df["referencedComponentId"].to_list(), df["mapTarget"].to_list()):
         acc.setdefault(c, set()).add(t)

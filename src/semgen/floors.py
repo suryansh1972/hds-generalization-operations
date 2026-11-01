@@ -70,6 +70,8 @@ class PhecodeFloorPolicy:
         anchors = self.anchors(child)
         if not anchors:
             return FloorDecision(False, "unmapped", {"code": child})
+        if not self._h.is_active(parent):
+            return FloorDecision(False, "inactive_parent", {"parent": parent})
         key = (parent, anchors)
         hit = self._memo.get(key)
         if hit is None:

@@ -307,3 +307,15 @@ def test_real_prototype_table(real_floors, real_h, code, anchors, decisions):
         else:
             assert d.ok is False and d.reason == "outside_floor", d
             assert d.detail["blocking_descendant"] == blocker and d.detail["anchor"] == anchor, d
+
+
+def test_policy_fails_closed_on_inactive_parent(fake_h):
+    from tests.conftest import RA_OLD_PARENT
+    pol = make(fake_h, {RA: {"E14"}}, {"E14": {"EM_202"}}, {})
+    d = pol.check_lift(RA, RA_OLD_PARENT)
+    assert not d.ok and d.reason == "inactive_parent" and d.detail == {"parent": RA_OLD_PARENT}
+
+
+def test_floor_policy_protocol_declares_anchors():
+    from semgen.operators.base import FloorPolicy
+    assert "anchors" in FloorPolicy.__protocol_attrs__

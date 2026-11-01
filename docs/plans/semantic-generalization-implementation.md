@@ -769,6 +769,19 @@ def test_guard_rejects_touching_absent(ctx, fake_m2):
 def test_blocked_collected(ctx, fake_m1):
     _, blocked = neighbors(fake_m1, ctx)
     assert {("concept_lift", "n3", "carries_value")} <= {(b.op, b.target, b.reason) for b in blocked}
+def test_guard_rejects_floor_escape(ctx, fake_m1):
+    from semgen.operators.base import ChangeRecord
+    from tests.conftest import BRCA, NEO_BREAST
+    child = fake_m1.replace_node(fake_m1.node("n1").model_copy(update={"code": NEO_BREAST}))
+    with pytest.raises(PolicyViolation):
+        guard(fake_m1, child, ChangeRecord("concept_lift", "n1", "code", BRCA, NEO_BREAST, {}), ctx)
+def test_guard_rejects_inactive_target(ctx):
+    from semgen.operators.base import ChangeRecord
+    from tests.conftest import RA, RA_OLD_PARENT, one_node_motif
+    m = one_node_motif(RA)
+    child = m.replace_node(m.node("n1").model_copy(update={"code": RA_OLD_PARENT}))
+    with pytest.raises(PolicyViolation):
+        guard(m, child, ChangeRecord("concept_lift", "n1", "code", RA, RA_OLD_PARENT, {}), ctx)
 ```
 
 (`lattice.py` must read `ALL_OPERATORS` and `check_order` as module attributes at call time, so the two monkeypatches above take effect.)
@@ -777,7 +790,7 @@ def test_blocked_collected(ctx, fake_m1):
 
 - [ ] **Step 3: Implement.** For each operator in `ALL_OPERATORS` order: collect `blocked`; for each move compute `child_hash`; skip if equal to the parent hash; run `guard`; run `check_order(parent, child, ctx)` and raise `GeneralizationOrderError(f"{reason} at {where}: {change}")` on failure; merge by `child_hash` preserving first-seen order. `lattice.py` imports `check_order` as a module-level name (so the monkeypatch works).
 
-- [ ] **Step 4: Run** → 5 passed. **Step 5: Commit** `feat: neighbors with policy guard, order proof and dedup`.
+- [ ] **Step 4: Run** → 7 passed. **Step 5: Commit** `feat: neighbors with policy guard, order proof and dedup`.
 
 ---
 
@@ -853,6 +866,7 @@ def test_files_and_header(tmp_path, ctx, fake_m1):
     paths = write_lattice(lat, "M1", tmp_path, run_header(ctx, "config/generalization.yaml", 2))
     hdr = json.loads(paths["run_header"].read_text())
     assert hdr["temporal_semantics"] == "certain" and hdr["config_status"].startswith("DRAFT") and len(hdr["config_sha256"]) == 64
+    assert hdr["floor_source"] == "phecodex" and len(hdr["phecodex_sha256"]) == 3 and hdr["ccsr_check"] == "unavailable"
     rows = [json.loads(l) for l in paths["candidates"].read_text().splitlines()]
     assert len(rows) == len(lat.candidates) and rows[0]["depth"] == 0
     edge = json.loads(paths["edges"].read_text().splitlines()[0]); assert {"parent", "child", "changes"} <= set(edge)
@@ -938,7 +952,7 @@ M1 patients (exact list, ids are dict keys): `exact` (= root as a patient), `dau
 import pytest
 from semgen.lattice import enumerate_lattice
 from semgen.order import check_order
-pytestmark = pytest.mark.snomed
+pytestmark = [pytest.mark.snomed, pytest.mark.phecodex]
 def lat_of(real_motifs, real_ctx, mid, d): return enumerate_lattice(next(m for m in real_motifs if m.motif_id == mid), real_ctx, d)
 def changes(lat): return [c for e in lat.edges for c in e.changes]
 @pytest.mark.parametrize("depth", [2, 4])
@@ -970,10 +984,11 @@ def test_drug_lifts_blocked_without_floor(real_motifs, real_ctx):
 
 - [ ] **Step 2: Run** `uv run pytest tests/test_integration_real.py -v` → if any test fails, it is a real bug: fix it in the owning task's module with a new unit test first.
 
-- [ ] **Step 3: Write `README.md`**: install (`uv sync`), run tests (`uv run pytest`, `-m "not snomed"` for fast runs), run CLI, the DRAFT warning, and a table of what is blocked and why (Amended by Stage 1, per S7/S8: Disorder lifts blocked `outside_floor` when a parent has a descendant outside the node's PhecodeX anchors, `unmapped` when the concept has no usable ICD-10→PhecodeX anchor, `inactive_parent`; Substance/Observable/Procedure/Finding lifts `no_floor`; `carries_value`; `concept_dependent_attr`; LVEF/ALT values block lifts, `cumulative_dose` concept-dependent, absent nodes untouched).
+- [ ] **Step 3: Write `README.md`**: install (`uv sync`, then `uv run python -m semgen.sources fetch` to download the pinned PhecodeX files), run tests (`uv run pytest`, `-m "not snomed"` for fast runs), run CLI, the DRAFT warning, and a table of what is blocked and why (Amended by Stage 1, per S7/S8: Disorder lifts blocked `outside_floor` when a parent has a descendant outside the node's PhecodeX anchors, `unmapped` when the concept has no usable ICD-10→PhecodeX anchor, `inactive_parent`; Substance/Observable/Procedure/Finding lifts `no_floor`; `carries_value`; `concept_dependent_attr`; LVEF/ALT values block lifts, `cumulative_dose` concept-dependent, absent nodes untouched).
 
 - [ ] **Step 4: Final verification**
 
+Prerequisite: `uv run python -m semgen.sources fetch` (PhecodeX files; the `phecodex` tests skip without them).
 Run: `uv run pytest -v` → all tests pass (the full run including `snomed` tests).
 Run: `uv run python -m semgen run --motifs data/motifs/synthetic_motifs.json --config config/generalization.yaml --depth 4 --out runs/final` twice into two folders and `diff -r` them → no differences.
 Expected: four summary lines, zero `GeneralizationOrderError`, zero `PolicyViolation`.
