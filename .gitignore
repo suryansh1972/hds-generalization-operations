@@ -1,0 +1,14 @@
+# worktrees
+.worktrees/
+.claude/worktrees/
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+
+# generated data (SNOMED cache, run outputs)
+data/cache/
+runs/
