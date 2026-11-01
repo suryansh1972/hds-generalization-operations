@@ -10,6 +10,8 @@
 
 **Spec:** `docs/semantic-generalization-methodology.md`, **as amended by "Decisions that supersede the methodology" below**. Where the two disagree, the amendments win.
 
+**Amended by Stage 1** (`docs/plans/stage1-phecodex-floors.md`): disorder floors are now derived from SNOMED→ICD-10→PhecodeX via `ctx.floors` (a `FloorPolicy`); the YAML `floors` list, `check_floors` and the `at_floor` reason no longer exist. Tasks 1–11 below describe the code as originally built and are kept for history.
+
 ---
 
 ## Decisions that supersede the methodology
@@ -19,7 +21,7 @@ These were settled in the design review. Each one changes or pins something in t
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Scope | POC. No support counting, utility, disclosure, BioPathNet calls, fuzzy/LLM matching, DuckDB, FalkorDB, rustworkx, clingo, Graphviz, Parquet, PhecodeX/ATC/LOINC/RxNorm tables. Deployment and licences are out of scope. |
-| D2 | Floors | A flat list of floor concepts in YAML: `363346000` Malignant neoplastic disease, `73211009` Diabetes mellitus (marked DRAFT). A node's applicable floors are the listed floors its concept is descendant-or-self of. A lift target must be descendant-or-self of **every** applicable floor (G1). No applicable floor → no lift, logged `blocked: no_floor`. No Substance or Observable floors are invented, so those lifts are blocked. |
+| D2 | Floors | A flat list of floor concepts in YAML: `363346000` Malignant neoplastic disease, `73211009` Diabetes mellitus (marked DRAFT). A node's applicable floors are the listed floors its concept is descendant-or-self of. A lift target must be descendant-or-self of **every** applicable floor (G1). No applicable floor → no lift, logged `blocked: no_floor`. No Substance or Observable floors are invented, so those lifts are blocked. — **Superseded by Stage 1 (S1–S10).** |
 | D3 | Lift blockers | Never lift a node that has a `value` (F7) or any concept-dependent attribute (G2). Attribute flags live in YAML; an attribute with no flag is treated as concept-dependent. `age_at_dx` = independent; `cumulative_dose` = dependent. |
 | D4 | Intervals | Every interval stores `lo`, `hi`, `lo_closed`, `hi_closed`, `unit`. `None` bound = unbounded. "Unconstrained" = the value/attr/window is **absent**, never (−∞, ∞). |
 | D5 | Ladders | A ladder is a laminar set of rungs (any two rungs are nested or disjoint), all in one unit. Coarsening moves to the **narrowest rung that strictly contains** the current interval; none → no move. The final "→ removed" step is not a rung (attribute removal does that). Ladders (DRAFT): LVEF `[0,40) [40,50) [50,55) [55,101) [0,50) [0,55)` (ESC `<40` convention); eGFR `[0,15) [15,30) [30,45) [45,60) [60,90) [90,∞) [30,60) [0,60)`; ALT ×ULN `[0,1] (1,3] (3,5] (5,20] (20,∞) (3,∞) (1,∞)`; age `[65,80) [90,∞) [65,∞)`; cumulative dose `[0,100) [100,250) [250,∞) [100,∞)`. |
@@ -738,7 +740,7 @@ Plus a Hypothesis test `test_random_chains_stay_ordered`: draw a chain of up to 
 - Consumes: `ALL_OPERATORS`, base (Tasks 6–11); `check_order` (Task 12); `motif_hash` (Task 5).
 - Produces:
   - `PolicyViolation(Exception)`, `GeneralizationOrderError(Exception)`.
-  - `guard(parent: Motif, child: Motif, change: ChangeRecord, ctx) -> None`: raises `PolicyViolation` if patient or anchor node missing; any absent node or edge touching it differs from the parent; any kept context edge differs from the parent; a `concept_lift` change's `after` is not descendant-or-self of every floor applicable to `before`.
+  - `guard(parent: Motif, child: Motif, change: ChangeRecord, ctx) -> None`: raises `PolicyViolation` if patient or anchor node missing; any absent node or edge touching it differs from the parent; any kept context edge differs from the parent; a `concept_lift` change is rejected unless `ctx.floors.check_lift(change.before, change.after).ok` is True and `ctx.hierarchy.is_active(change.after)` (Amended by Stage 1).
   - `Neighbor(child: Motif, child_hash: str, changes: tuple[ChangeRecord, ...])` — `changes[0]` is the first operator (fixed order) that produced this child; the rest are alternatives.
   - `neighbors(motif, ctx) -> tuple[list[Neighbor], list[Blocked]]`.
 
@@ -836,9 +838,9 @@ def test_deterministic(ctx, fake_m1):
 **Interfaces:**
 - Consumes: `Lattice` (Task 14), `canonical_json` (Task 5), `config_sha256` (Task 2), `Hierarchy.release/edition` (Task 3).
 - Produces:
-  - `run_header(ctx, config_path, max_depth) -> dict` with keys exactly: `snomed_release`, `snomed_edition`, `config_sha256`, `config_status`, `lvef_convention`, `temporal_semantics` (`"certain"`), `absent_semantics` (`"closed-world: no recorded fact that is the concept or any descendant"`), `max_depth`, `semgen_version`.
+  - `run_header(ctx, config_path, max_depth) -> dict` with keys exactly: `snomed_release`, `snomed_edition`, `config_sha256`, `config_status`, `lvef_convention`, `temporal_semantics` (`"certain"`), `absent_semantics` (`"closed-world: no recorded fact that is the concept or any descendant"`), `max_depth`, `semgen_version`, plus the Stage 1 floor-provenance fields (from `ctx.floors.provenance` and `config.floor_source`): `floor_source`, `phecodex_commit`, `phecodex_sha256` (a dict of the 3 files), `icd10_map_refset`, `icd10_map_release`, `phecode_level`, `ccsr_check: "unavailable"` and `source_licences: {"phecodex": "unconfirmed"}` (Amended by Stage 1).
   - `write_lattice(lat: Lattice, motif_id: str, out_dir: Path, header: dict) -> dict[str, Path]` writing `out_dir/<motif_id>/run_header.json`, `candidates.jsonl` (`hash, depth, motif` = parsed canonical JSON), `edges.jsonl` (`parent, child, changes`), `blocked.jsonl` (`from, op, target, reason, detail`). Lines sorted by `(depth, hash)` / `(parent, child)` / `(from, op, target, reason)`.
-  - CLI: `python -m semgen run --motifs PATH --config PATH [--rf2 DIR] [--depth N] --out DIR` → loads, checks floors, enumerates each motif, writes files, prints one summary line per motif: `M1 depth=4 candidates=N edges=E blocked=B`.
+  - CLI: `python -m semgen run --motifs PATH --config PATH [--rf2 DIR] [--phecodex DIR] [--depth N] --out DIR` → loads, verifies sources and builds the floor policy, enumerates each motif, writes files, prints one summary line per motif: `M1 depth=4 candidates=N edges=E blocked=B`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -947,18 +949,20 @@ def test_all_motifs_zero_proof_failures(real_motifs, real_ctx, depth):
 def test_m1_check2(real_motifs, real_ctx):
     ch = changes(lat_of(real_motifs, real_ctx, "M1", 1))
     lifts = {(c.target, c.after) for c in ch if c.op == "concept_lift"}
-    assert lifts == {("n1", "188361007")}                                    # thorax only; Neoplasm of breast blocked
+    assert lifts == set()                                                    # Stage 1: both parents (126926005, 188361007) are outside_floor
+    lat = lat_of(real_motifs, real_ctx, "M1", 1)
+    assert {(b.target, b.detail["parent"]) for _, b in lat.blocked if b.op == "concept_lift" and b.reason == "outside_floor" and b.target == "n1"} == {("n1", "126926005"), ("n1", "188361007")}
     assert ("P->n2", "exposed_to_drug") in {(c.target, c.after) for c in ch if c.op == "relation_relaxation"}
 def test_m2_check3(real_motifs, real_ctx):
     lat = lat_of(real_motifs, real_ctx, "M2", 4)
-    assert {c.after for c in changes(lat) if c.op == "concept_lift" and c.target == "n1"} == {"73211009"}
+    assert {c.after for c in changes(lat) if c.op == "concept_lift" and c.target == "n1"} == set()   # Stage 1: DM blocked by 105401000119101
     assert not any(c.target in ("n2", "P->n2") for c in changes(lat))
 def test_m3_anchor_lift(real_motifs, real_ctx):
     assert ("n1", "254637007") in {(c.target, c.after) for c in changes(lat_of(real_motifs, real_ctx, "M3", 1)) if c.op == "concept_lift"}
 def test_m4_alt_and_ra_blocked(real_motifs, real_ctx):
     lat = lat_of(real_motifs, real_ctx, "M4", 1)
     assert ("n3", (3, 5)) in {(c.target, (c.after["lo"], c.after["hi"])) for c in changes(lat) if c.op == "range_coarsening"}
-    assert ("concept_lift", "n1", "no_floor") in {(b.op, b.target, b.reason) for _, b in lat.blocked}
+    assert ("concept_lift", "n1", "outside_floor") in {(b.op, b.target, b.reason) for _, b in lat.blocked}
 def test_drug_lifts_blocked_without_floor(real_motifs, real_ctx):
     lat = lat_of(real_motifs, real_ctx, "M1", 1)
     assert not any(c.op == "concept_lift" and c.target == "n2" for c in changes(lat))
@@ -966,7 +970,7 @@ def test_drug_lifts_blocked_without_floor(real_motifs, real_ctx):
 
 - [ ] **Step 2: Run** `uv run pytest tests/test_integration_real.py -v` → if any test fails, it is a real bug: fix it in the owning task's module with a new unit test first.
 
-- [ ] **Step 3: Write `README.md`**: install (`uv sync`), run tests (`uv run pytest`, `-m "not snomed"` for fast runs), run CLI, the DRAFT warning, and a table of what is blocked and why (Substance/Observable floors, LVEF/ALT values block lifts, `cumulative_dose` concept-dependent, absent nodes untouched).
+- [ ] **Step 3: Write `README.md`**: install (`uv sync`), run tests (`uv run pytest`, `-m "not snomed"` for fast runs), run CLI, the DRAFT warning, and a table of what is blocked and why (Amended by Stage 1, per S7/S8: Disorder lifts blocked `outside_floor` when a parent has a descendant outside the node's PhecodeX anchors, `unmapped` when the concept has no usable ICD-10→PhecodeX anchor, `inactive_parent`; Substance/Observable/Procedure/Finding lifts `no_floor`; `carries_value`; `concept_dependent_attr`; LVEF/ALT values block lifts, `cumulative_dose` concept-dependent, absent nodes untouched).
 
 - [ ] **Step 4: Final verification**
 
