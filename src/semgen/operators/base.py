@@ -8,24 +8,36 @@ Conventions for every operator:
 - ``evidence``/``detail`` hold only JSON-safe values (str, int, float, bool, None and
   lists/dicts of those), with lists sorted or otherwise in a deterministic order.
 - Operators are pure: they never mutate the input motif.
+- ``concept_lift`` blocked reasons: ``carries_value``, ``concept_dependent_attr``,
+  ``no_floor`` (non-Disorder), ``unmapped`` (no PhecodeX anchors), ``inactive_parent``
+  and ``outside_floor`` (a parent's active descendant leaves the child's anchors).
 """
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 
 from semgen.config import GenConfig
+from semgen.floors import FloorDecision
 from semgen.model import Edge, Motif
 from semgen.snomed import Hierarchy
 
 CLINICAL_TYPES = frozenset({"Disorder", "Substance", "Observable", "Procedure", "Finding"})
 
 
+class FloorPolicy(Protocol):
+    def check_lift(self, child: str, parent: str) -> FloorDecision: ...
+
+    @property
+    def provenance(self) -> dict: ...
+
+
 @dataclass(frozen=True)
 class GenContext:
     hierarchy: Hierarchy
     config: GenConfig
+    floors: FloorPolicy
 
 
 @dataclass(frozen=True)

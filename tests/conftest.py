@@ -106,13 +106,13 @@ _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "generalizati
 
 
 @pytest.fixture
-def ctx(fake_h):
-    return GenContext(hierarchy=fake_h, config=load_config(_CONFIG_PATH))
+def ctx(fake_h, fake_floors):
+    return GenContext(fake_h, load_config(_CONFIG_PATH), fake_floors)
 
 
 @pytest.fixture(scope="session")
-def real_ctx(real_h):
-    return GenContext(hierarchy=real_h, config=load_config(_CONFIG_PATH))
+def real_ctx(real_h, real_floors):
+    return GenContext(real_h, load_config(_CONFIG_PATH), real_floors)
 
 
 def one_node_motif(code) -> Motif:

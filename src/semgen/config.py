@@ -1,4 +1,4 @@
-"""DRAFT YAML configuration: ladders, floors and relation hierarchy, validated at load."""
+"""DRAFT YAML configuration: ladders, floor source and relation hierarchy, validated at load."""
 from __future__ import annotations
 
 import hashlib
@@ -94,7 +94,6 @@ class GenConfig(BaseModel):
 
     status: str
     lvef_convention: str
-    floors: tuple[str, ...]
     floor_source: FloorSourceConfig
     attribute_flags: dict[str, Literal["concept_dependent", "concept_independent"]]
     value_ladders: tuple[Ladder, ...]
@@ -177,10 +176,6 @@ def _check_cycles(parents: dict[str, str]) -> None:
 
 def _parse(raw: dict[str, Any]) -> GenConfig:
     floor_source = _build_floor_source(raw["floor_source"])
-    floors = tuple(str(f) for f in raw["floors"])
-    for f in floors:
-        if not f.isascii() or not f.isdigit():
-            raise ConfigError(f"floor {f!r} is not a numeric SNOMED id")
     # Build ladders in the controller-specified check order: unit, negative, laminar (per ladder).
     value_ladders = tuple(_build_ladder(k, v) for k, v in raw["value_ladders"].items())
     attr_ladders = tuple(_build_ladder(k, v) for k, v in raw["attr_ladders"].items())
@@ -188,7 +183,7 @@ def _parse(raw: dict[str, Any]) -> GenConfig:
     parents = dict(raw["relation_parents"])
     _check_cycles(parents)
     return GenConfig(
-        status=raw["status"], lvef_convention=raw["lvef_convention"], floors=floors,
+        status=raw["status"], lvef_convention=raw["lvef_convention"],
         floor_source=floor_source,
         attribute_flags=raw["attribute_flags"], value_ladders=value_ladders,
         attr_ladders=attr_ladders, time_ladder=time_ladder,

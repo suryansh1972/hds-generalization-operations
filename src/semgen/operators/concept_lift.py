@@ -1,4 +1,4 @@
-"""Concept lift: replace a node's code by a direct IS-A parent, bounded by floors."""
+"""Concept lift: replace a node's code by a direct IS-A parent, bounded by the PhecodeX floor policy."""
 from __future__ import annotations
 
 from semgen.model import Motif
@@ -28,23 +28,25 @@ def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
         if dependent:
             block("concept_dependent_attr", attrs=dependent)
             continue
-        floors = [f for f in cfg.floors if h.is_descendant_or_self(code, f)]
-        if not floors:
-            block("no_floor")
+        if node.type != "Disorder":
+            block("no_floor", type=node.type)
             continue
-        if code in floors:
-            block("at_floor", floors=floors)
-            continue
-        for p in sorted(h.parents(code)):
-            if not h.is_active(p):
+        parents = sorted(h.parents(code))
+        for p in parents:
+            if not h.is_active(p):   # before the floor check: the policy approves an empty parent vacuously
                 block("inactive_parent", parent=p)
+        for p in parents:
+            if not h.is_active(p):
                 continue
-            escaped = [f for f in floors if not h.is_descendant_or_self(p, f)]
-            if escaped:
-                block("outside_floor", parent=p, escaped_floors=escaped)
+            d = ctx.floors.check_lift(code, p)
+            if d.reason == "unmapped":
+                block("unmapped")
+                break
+            if not d.ok:
+                block(d.reason or "outside_floor", **d.detail)
                 continue
             child = motif.replace_node(node.model_copy(update={"code": p, "label": h.fsn(p)}))
-            evidence = {"isa": [code, p], "floors": floors, "parent_fsn": h.fsn(p),
+            evidence = {"isa": [code, p], **d.detail, "parent_fsn": h.fsn(p),
                         "depth_before": h.depth(code), "depth_after": h.depth(p)}
             moves.append(Move(child, ChangeRecord(OP, node.id, "code", code, p, evidence)))
     return OperatorResult(moves, blocked)

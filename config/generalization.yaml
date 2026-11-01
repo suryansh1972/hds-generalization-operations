@@ -1,5 +1,6 @@
 # semgen generalization config.
 # Every value in this file is DRAFT — not clinically approved.
+# Floors come from `floor_source` (PhecodeX), not from a list in this file.
 status: "DRAFT — not clinically approved"
 lvef_convention: ESC2022_lt40
 
@@ -16,12 +17,6 @@ floor_source:
   icd10_map_refset: "447562003"
   map_rules: ["TRUE", "OTHERWISE TRUE"]
   licence: unconfirmed
-
-# Floors (D2): a lift target must be descendant-or-self of every applicable floor.
-# No Substance or Observable floors are defined, so those lifts are blocked.
-floors:
-  - "363346000"   # Malignant neoplastic disease
-  - "73211009"    # Diabetes mellitus (DRAFT)
 
 # Attribute flags (D3); an unflagged attribute is treated as concept-dependent.
 attribute_flags:

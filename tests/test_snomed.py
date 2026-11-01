@@ -1,6 +1,6 @@
 import pytest
 
-from semgen.snomed import FsnError, check_floors, load_rf2
+from semgen.snomed import FsnError, load_rf2
 from tests.conftest import *  # noqa: F401,F403  (constants)
 
 FIX = "tests/fixtures/rf2"
@@ -73,17 +73,6 @@ def test_direction_helpers(fake_h):
     assert fake_h.depth(BRCA) == 3 and fake_h.depth(ROOT) == 0
     with pytest.raises(ValueError):
         fake_h.depth(RA_OLD_PARENT)
-
-
-def test_check_floors_rejects_unknown(fake_h, tmp_path):
-    from semgen.config import ConfigError, load_config
-
-    c = load_config("config/generalization.yaml")
-    check_floors(c, fake_h)
-    with pytest.raises(ConfigError, match="floor"):
-        check_floors(c.model_copy(update={"floors": ("123",)}), fake_h)
-    with pytest.raises(ConfigError, match="floor"):
-        check_floors(c.model_copy(update={"floors": (RA_OLD_PARENT,)}), fake_h)
 
 
 @pytest.mark.snomed

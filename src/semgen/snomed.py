@@ -8,12 +8,8 @@ import re
 import tempfile
 from collections import deque
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import polars as pl
-
-if TYPE_CHECKING:
-    from semgen.config import GenConfig
 
 ROOT_ID = "138875005"
 IS_A = "116680003"
@@ -245,11 +241,3 @@ def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -
         Path(tmp).unlink(missing_ok=True)
         raise
     return h
-
-
-def check_floors(config: GenConfig, h: Hierarchy) -> None:
-    from semgen.config import ConfigError
-
-    bad = [f for f in config.floors if not h.is_active(f)]
-    if bad:
-        raise ConfigError(f"floor concept(s) unknown or inactive in SNOMED {h.release}: {', '.join(bad)}")

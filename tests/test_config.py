@@ -11,7 +11,7 @@ CFG = "config/generalization.yaml"
 
 def test_loads_and_is_draft():
     c = load_config(CFG)
-    assert c.status.startswith("DRAFT") and c.floors == ("363346000", "73211009") and c.max_depth == 4
+    assert c.status.startswith("DRAFT") and c.max_depth == 4
 
 
 def test_lvef_ladder_walk():
@@ -55,9 +55,17 @@ def test_relation_leq():
     assert not r.leq("exposed_to_drug", "administered_drug")
 
 
-def test_model_copy_floors():
-    c = load_config(CFG).model_copy(update={"floors": ("363346000",)})
-    assert c.floors == ("363346000",)
+def test_no_floor_list_anywhere():
+    assert "floors" not in yaml.safe_load(open(CFG))
+    assert not hasattr(load_config(CFG), "floors")
+
+
+def test_no_sctid_in_config():
+    import re
+    for line in open(CFG).read().splitlines():
+        if "applies_to_concepts" in line or "icd10_map_refset" in line:
+            continue
+        assert not re.search(r"\b\d{6,18}\b", line), line
 
 
 def test_config_sha256():
@@ -70,7 +78,6 @@ def test_config_sha256():
     (lambda d: d["value_ladders"]["lvef"]["rungs"].append([35, 45]), "laminar"),
     (lambda d: d["time_ladder"]["rungs"].append([-5, 30]), "negative"),
     (lambda d: d["relation_parents"].update({"exposed_to_drug": "administered_drug"}), "cycle"),
-    (lambda d: d.update({"floors": ["not-an-id"]}), "floor"),
     (lambda d: d["value_ladders"]["lvef"]["rungs"].append({"lo": 0, "hi": 5, "unit": "mg"}), "unit"),
 ])
 def test_invalid_configs_fail_at_load(tmp_path, mutate, msg):
