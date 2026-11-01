@@ -94,3 +94,59 @@ def neighbors(motif: Motif, ctx: GenContext) -> tuple[list[Neighbor], list[Block
             else:
                 found[h] = Neighbor(mv.child, h, (mv.change,))
     return list(found.values()), blocked
+
+
+@dataclass(frozen=True)
+class Candidate:
+    hash: str
+    depth: int
+    motif: Motif
+
+
+@dataclass(frozen=True)
+class LatticeEdge:
+    parent: str
+    child: str
+    changes: tuple[ChangeRecord, ...]
+
+
+@dataclass(frozen=True)
+class Lattice:
+    root: str
+    candidates: dict[str, Candidate]
+    edges: list[LatticeEdge]
+    blocked: list[tuple[str, Blocked]]  # (hash of the candidate it came from, blocked move)
+
+
+def enumerate_lattice(root: Motif, ctx: GenContext, max_depth: int | None = None) -> Lattice:
+    """Level-by-level BFS from ``root`` with global dedup; every candidate is proven <= root."""
+    if max_depth is None:
+        max_depth = ctx.config.max_depth
+    if isinstance(max_depth, bool) or not isinstance(max_depth, int) or max_depth < 0:
+        raise ValueError(f"max_depth must be an int >= 0, got {max_depth!r}")
+    root_hash = motif_hash(root)
+    candidates: dict[str, Candidate] = {root_hash: Candidate(root_hash, 0, root)}
+    edges: list[LatticeEdge] = []
+    blocked: list[tuple[str, Blocked]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    frontier = [root_hash]
+    depth = 0
+    while frontier and depth < max_depth:
+        nxt: list[str] = []
+        for h in frontier:
+            ns, bl = neighbors(candidates[h].motif, ctx)
+            blocked.extend((h, b) for b in bl)
+            for n in ns:
+                if n.child_hash not in candidates:
+                    candidates[n.child_hash] = Candidate(n.child_hash, depth + 1, n.child)
+                    nxt.append(n.child_hash)
+                if (h, n.child_hash) not in seen_pairs:
+                    seen_pairs.add((h, n.child_hash))
+                    edges.append(LatticeEdge(h, n.child_hash, n.changes))
+        frontier = nxt
+        depth += 1
+    for h, c in candidates.items():
+        r = check_order(root, c.motif, ctx)
+        if not r.ok:
+            raise GeneralizationOrderError(f"root proof failed: {r.reason} at {r.where} for {h}")
+    return Lattice(root_hash, candidates, edges, blocked)
