@@ -32,9 +32,35 @@ def test_drug_with_dependent_dose_is_blocked(ctx, fake_m1):
     assert ("n2", "concept_dependent_attr") in reasons(r) and not any(m.change.target == "n2" for m in r.moves)
 
 
-def test_drug_without_attrs_has_no_floor(ctx, fake_m2):
-    (b,) = blk(concept_lift(fake_m2, ctx), "n3", "no_floor")                # metformin
-    assert b.detail["type"] == "Substance" and b.detail["code"] == MET
+def test_drug_not_in_icd_map_is_unmapped(ctx, fake_m2):
+    r = concept_lift(fake_m2, ctx)
+    (b,) = blk(r, "n3", "unmapped")                                          # metformin: Substance, no ICD-10 target
+    assert b.detail == {"code": MET} and not any(m.change.target == "n3" for m in r.moves)
+    assert not any(b.reason == "no_floor" for b in r.blocked)
+
+
+def _retyped(code, typ):
+    m = one_node_motif(code)
+    return m.replace_node(m.node("n1").model_copy(update={"type": typ}))
+
+
+def test_finding_typed_node_lifts_like_disorder(ctx):
+    r = concept_lift(_retyped(BRCA, "Finding"), ctx)
+    assert _lifts(r, "n1") == {MAL_THORAX}
+    (b,) = blk(r, "n1", "outside_floor")
+    assert b.detail["parent"] == NEO_BREAST
+    assert not any(b.reason == "no_floor" for b in r.blocked)
+
+
+def test_substance_typed_node_lifts_when_floor_allows(fake_h, ctx):
+    from semgen.floors import PhecodeFloorPolicy
+    from semgen.icd10map import Icd10Map
+    from semgen.operators.base import GenContext
+    from semgen.phecodex import PhecodeX
+    pol = PhecodeFloorPolicy(fake_h, Icd10Map.from_maps({MET: {"X1"}, BIGUANIDE: {"X1"}}),
+                             PhecodeX.from_maps({"X1": {"DR_1"}}, {}), "first_decimal")
+    r = concept_lift(_retyped(MET, "Substance"), GenContext(fake_h, ctx.config, pol))
+    assert _lifts(r, "n1") == {BIGUANIDE}
 
 
 def test_node_with_value_is_never_lifted(ctx, fake_m1):
@@ -136,7 +162,7 @@ def test_real_m3_lift(real_ctx, real_motifs):
 @pytest.mark.phecodex
 def test_real_m4_ra_blocked(real_ctx, real_motifs):
     r = concept_lift(_m(real_motifs, "M4"), real_ctx)
-    assert len(blk(r, "n1", "outside_floor")) == 2 and not blk(r, "n1", "no_floor")
+    assert len(blk(r, "n1", "outside_floor")) == 2 and not any(b.reason == "no_floor" for b in r.blocked)
 
 
 @pytest.mark.snomed
@@ -154,3 +180,9 @@ def test_unknown_and_parentless_codes_are_blocked(ctx):
     root = concept_lift(one_node_motif(ROOT), ctx)
     (b,) = blk(root, "n1", "no_parent")
     assert b.detail == {"code": ROOT} and not root.moves
+
+
+@pytest.mark.snomed
+@pytest.mark.phecodex
+def test_real_no_no_floor_anywhere(real_ctx, real_motifs):
+    assert not any(b.reason == "no_floor" for m in real_motifs for b in concept_lift(m, real_ctx).blocked)

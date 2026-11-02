@@ -18,10 +18,10 @@ def test_fake_rows(ctx, fake_m1, fake_m2):
     # Sorted by parent id: 126926005 (NEO_BREAST) before 188361007 (MAL_THORAX). FSNs are None in the fake tables.
     # M1 n1: BRCA anchors CA_105+CA_130. NEO_BREAST (D24 -> BI_999) is outside CA_105 at once.
     # MAL_THORAX (C50.9) and its descendant BRCA are inside both anchors -> allowed.
-    # M1 n2 DOX has cumulative_dose (concept-dependent, checked before type) -> concept_dependent_attr. n3 carries a value (and is no Disorder) -> carries_value.
+    # M1 n2 DOX has cumulative_dose (concept-dependent, checked before type) -> concept_dependent_attr. n3 carries a value -> carries_value.
     # M2 n1: T2DM anchor EM_202.2; parent DM (E14 -> EM_202) is not inside EM_202.2; the smallest failing
     #   descendant id is T1DM 46635009 (E10 -> EM_202, EM_202.1). n4 CKD: parent DISEASE; smallest id that is
-    #   outside GU_582.2 is NEO_BREAST 126926005 (D24 -> BI_999). n3 Substance no_floor. n5 value. n2 absent: skipped.
+    #   outside GU_582.2 is NEO_BREAST 126926005 (D24 -> BI_999). n3 Substance metformin has no ICD-10 target in FAKE_ICD -> unmapped. n5 value. n2 absent: skipped.
     assert rows == [
         _row("M1", "n1", BRCA, h.fsn(BRCA), "outside_floor", NEO_BREAST, "CA_105;CA_130",
              NEO_BREAST, h.fsn(NEO_BREAST), "CA_105", h.fsn(NEO_BREAST)),
@@ -29,7 +29,7 @@ def test_fake_rows(ctx, fake_m1, fake_m2):
         _row("M1", "n2", DOX, h.fsn(DOX), "concept_dependent_attr"),
         _row("M1", "n3", "250908004", h.fsn("250908004"), "carries_value"),
         _row("M2", "n1", T2DM, h.fsn(T2DM), "outside_floor", DM, "EM_202.2", T1DM, h.fsn(T1DM), "EM_202.2", h.fsn(DM)),
-        _row("M2", "n3", "372567009", h.fsn("372567009"), "no_floor"),
+        _row("M2", "n3", "372567009", h.fsn("372567009"), "unmapped"),
         _row("M2", "n4", CKD, h.fsn(CKD), "outside_floor", "64572001", "GU_582.2",
              NEO_BREAST, h.fsn(NEO_BREAST), "GU_582.2", h.fsn("64572001")),
         _row("M2", "n5", "80274001", h.fsn("80274001"), "carries_value"),

@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from semgen.canonical import canonical_json, motif_hash
 from semgen.model import PATIENT_ID, Motif
 from semgen.operators import ALL_OPERATORS
-from semgen.operators.base import Blocked, ChangeRecord, GenContext
+from semgen.operators.base import CLINICAL_TYPES, Blocked, ChangeRecord, GenContext
 from semgen.order import OrderResult, check_order  # noqa: F401  (OrderResult re-exported)
 
 
@@ -78,8 +78,13 @@ def guard(parent: Motif, child: Motif, change: ChangeRecord | None, ctx: GenCont
             raise _violation("context_code_changed", nid, what)
         if pn.polarity != "present":
             continue  # absent nodes are covered by absent_node_changed
-        if pn.type != "Disorder":
+        if pn.type not in CLINICAL_TYPES:
             raise _violation("lift_type_not_allowed", nid, f"type={pn.type}; {what}")
+        if pn.value is not None:
+            raise _violation("lift_on_valued_node", nid, what)
+        dependent = sorted(a for a in pn.attrs if ctx.config.attr_is_concept_dependent(a))
+        if dependent:
+            raise _violation("lift_on_dependent_attr", nid, f"attrs={dependent}; {what}")
         if pn.code is None or cn.code is None or cn.code not in h.parents(pn.code):
             raise _violation("not_direct_parent", f"{pn.code}->{cn.code}", what)
         if not h.is_active(cn.code):

@@ -34,9 +34,6 @@ def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
         if dependent:
             block("concept_dependent_attr", attrs=dependent)
             continue
-        if node.type != "Disorder":
-            block("no_floor", type=node.type)
-            continue
         parents = sorted(h.parents(code))
         for p in parents:
             if not h.is_active(p):   # before the floor check: the policy approves an empty parent vacuously

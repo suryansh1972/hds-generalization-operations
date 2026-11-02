@@ -86,7 +86,7 @@ run on.
 | M1 | Breast cancer (age at diagnosis 67), doxorubicin (cumulative dose 360), LVEF 38 %, followed by 23 d; context gene TOP2B and a pathway | Disorder floors (both parents blocked), drug lift blocked by a concept-dependent attribute, value-carrying observable, relation relaxation, edge removal cascades over context edges |
 | M2 | Type 2 diabetes with *absent* type 1 diabetes, metformin, CKD, eGFR 42 at 180 d; context "lactic acidosis" | Negation (absent nodes are never changed), strict T2DM to DM ruling, eGFR ladder |
 | M3 | EGFR-mutant NSCLC, osimertinib, interstitial lung disease | The one allowed disorder lift (to NSCLC) |
-| M4 | Rheumatoid arthritis, methotrexate, ALT 3.6 xULN | ALT range coarsening to (3,5], RA lifts blocked, drug no floor |
+| M4 | Rheumatoid arthritis, methotrexate, ALT 3.6 xULN | ALT range coarsening to (3,5], RA lifts blocked, drug `unmapped` |
 
 ## DRAFT configuration
 
@@ -106,11 +106,10 @@ Each blocked move is written to `blocked.jsonl` with its reason.
 | Reason | Operator | Meaning |
 |---|---|---|
 | `outside_floor` | concept lift | The parent has at least one active descendant that is not inside every PhecodeX anchor of the node's concept, so lifting would leave the clinically meaningful group. `detail` names the blocking descendant and anchor |
-| `unmapped` | concept lift | The concept has no usable SNOMED to ICD-10 to PhecodeX mapping, so no floor can be derived. Fail-closed |
+| `unmapped` | concept lift | Applies to any SNOMED-coded node (Disorder, Finding, Procedure, Substance, Observable). The concept has no usable SNOMED to ICD-10 to PhecodeX mapping, so no floor can be derived. Fail-closed |
 | `inactive_parent` | concept lift | The parent concept is inactive in the release |
 | `unknown_concept` | concept lift | The node's code is not an active concept in the loaded release |
 | `no_parent` | concept lift | The concept is active but has no IS-A parent (a root), so there is nothing to lift to |
-| `no_floor` | concept lift | The node is not a Disorder (Substance, Observable, Procedure, Finding); Stage 1 has no floor source for these |
 | `carries_value` | concept lift | The node has a measurement value, which only has meaning for its exact concept |
 | `concept_dependent_attr` | concept lift | The node has an attribute whose meaning depends on the concept (or an unflagged one) |
 | `no_ladder` | range coarsening | No ladder is configured for this concept or attribute |
@@ -122,11 +121,11 @@ Each blocked move is written to `blocked.jsonl` with its reason.
 
 Why these rules:
 
-- **Substance and Observable lifts are blocked.** Stage 1 has no published floor source for them (PhecodeX covers disorders only). Drug-class floors (Stage 2, for example RxNorm/RxClass) are future work.
+- **Substances and observables go through the same ICD-10 to PhecodeX rule.** The floor applies to every SNOMED-coded node. Most substances have no ICD-10 target and so are `unmapped`; observables with a value are blocked `carries_value` before any floor check. Drug-class floors (Stage 2, for example RxNorm/RxClass) are future work.
 - **LVEF and ALT measurement nodes cannot be concept-lifted.** A value such as LVEF 38 % is only meaningful for its exact concept (finding F7), so lifting the concept would silently change what the number means. Their values can still be coarsened with a ladder.
 - **`cumulative_dose` blocks a drug lift.** It is concept-dependent: 360 mg/m2 of doxorubicin is not 360 mg/m2 of another anthracycline. Any attribute without a flag in the YAML is treated as dependent.
 - **Absent constraints are never changed.** The semantics are closed world: "no X" means no recorded fact that is X or a descendant of X. Lifting "no X" to "no parent of X" would narrow the set of matching patients, so it is not a generalization.
-- **How disorder floors are derived.** For a Disorder, take its usable SNOMED to ICD-10 targets (International map, refset 447562003, rules `TRUE` and `OTHERWISE TRUE`), look them up in PhecodeX (with a trailing-character fallback), truncate to `first_decimal` and keep the most specific phecodes as the node's *anchors*. A direct parent is allowed only if **every** active descendant-or-self of that parent maps inside **every** anchor. Any gap (no map, no phecode, an inactive parent) blocks the lift (fail-closed).
+- **How floors are derived.** For any SNOMED-coded node, take its usable SNOMED to ICD-10 targets (International map, refset 447562003, rules `TRUE` and `OTHERWISE TRUE`), look them up in PhecodeX (with a trailing-character fallback), truncate to `first_decimal` and keep the most specific phecodes as the node's *anchors*. A direct parent is allowed only if **every** active descendant-or-self of that parent maps inside **every** anchor. Any gap (no map, no phecode, an inactive parent) blocks the lift (fail-closed).
 
 Real outcomes on M1-M4 (DRAFT, release 20260201):
 
@@ -137,7 +136,7 @@ Real outcomes on M1-M4 (DRAFT, release 20260201):
 | M2 n4 | Chronic kidney disease | both parents `outside_floor` |
 | M3 n1 | EGFR-mutant NSCLC | lift to Non-small cell lung cancer **allowed** |
 | M4 n1 | Rheumatoid arthritis | both parents `outside_floor` |
-| M1 n2, M2 n3, M3 n3, M4 n2 | drugs | `concept_dependent_attr` (M1) or `no_floor` |
+| M1 n2, M2 n3, M3 n3, M4 n2 | drugs | `concept_dependent_attr` (M1 doxorubicin, checked first) or `unmapped` (metformin, osimertinib, methotrexate: no ICD-10 target) |
 | M1 n3, M2 n5, M4 n3 | LVEF, eGFR, ALT | `carries_value` |
 
 ## Guarantees and how they are checked

@@ -114,8 +114,24 @@ def test_guard_ignores_mislabelled_change_record(ctx, fake_m1):
     from semgen.operators.base import ChangeRecord
     from tests.conftest import MAL_THORAX
     child = _recode(fake_m1, "n3", MAL_THORAX)   # an Observable code change labelled as something harmless
-    with pytest.raises(PolicyViolation, match="lift_type_not_allowed"):
+    # n3 is a clinical type carrying a value: rejected by the explicit valued-node rule (before direct-parent).
+    with pytest.raises(PolicyViolation, match="lift_on_valued_node"):
         guard(fake_m1, child, ChangeRecord("attribute_removal", "n3", "attrs", None, None, {}), ctx)
+
+
+def test_guard_rejects_code_change_on_non_clinical_type(ctx, fake_m1):
+    n = fake_m1.node("n1").model_copy(update={"type": "Phenotype"})
+    parent = fake_m1.replace_node(n)
+    with pytest.raises(PolicyViolation, match="lift_type_not_allowed"):
+        guard(parent, _recode(parent, "n1", "188361007"), None, ctx)
+
+
+def test_guard_judges_non_disorder_clinical_lift_by_floor(ctx, fake_m1):
+    from tests.conftest import NEO_BREAST, MAL_THORAX
+    parent = fake_m1.replace_node(fake_m1.node("n1").model_copy(update={"type": "Finding"}))
+    guard(parent, _recode(parent, "n1", MAL_THORAX), None, ctx)           # floor allows
+    with pytest.raises(PolicyViolation, match="floor_violation"):
+        guard(parent, _recode(parent, "n1", NEO_BREAST), None, ctx)       # floor rejects
 
 
 def test_guard_rejects_two_level_jump(ctx, fake_m1):
@@ -175,3 +191,39 @@ def test_hash_collision_in_enumerate_detected(ctx, fake_m1, monkeypatch):
     other = fake_m1.replace_node(fake_m1.node("n3").model_copy(update={"value": None}))
     monkeypatch.setattr(L, "neighbors", lambda m, c: ([Neighbor(other, "c" * 16, ())], []))
     with pytest.raises(GeneralizationOrderError, match="hash collision"): L.enumerate_lattice(fake_m1, ctx, 1)
+
+
+def test_guard_rejects_code_change_on_valued_node(ctx, fake_m1):
+    from tests.conftest import OBS
+    with pytest.raises(PolicyViolation, match="lift_on_valued_node"):
+        guard(fake_m1, _recode(fake_m1, "n3", OBS), None, ctx)           # LVEF (has value) -> its parent
+
+
+def test_guard_rejects_code_change_on_dependent_attr_node(ctx, fake_m1):
+    from tests.conftest import ANTHRA
+    with pytest.raises(PolicyViolation, match="lift_on_dependent_attr"):
+        guard(fake_m1, _recode(fake_m1, "n2", ANTHRA), None, ctx)        # DOX (cumulative_dose) -> its parent
+
+
+def test_every_operator_move_passes_guard(ctx, fake_m1, fake_m2):
+    from semgen.operators import ALL_OPERATORS
+    n = 0
+    for m in (fake_m1, fake_m2):
+        for op in ALL_OPERATORS:
+            for mv in op(m, ctx).moves:
+                guard(m, mv.child, mv.change, ctx); n += 1
+    assert n > 0
+
+
+def test_guard_rejects_inactive_target_on_finding(fake_h, ctx):
+    from semgen.floors import PhecodeFloorPolicy
+    from semgen.icd10map import Icd10Map
+    from semgen.operators.base import GenContext
+    from semgen.phecodex import PhecodeX
+    from tests.conftest import RA, RA_OLD_PARENT, one_node_motif
+    floors = PhecodeFloorPolicy(fake_h, Icd10Map.from_maps({RA: {"E14"}}),
+                                PhecodeX.from_maps({"E14": {"EM_202"}}, {}), "first_decimal")
+    m = one_node_motif(RA)
+    m = m.replace_node(m.node("n1").model_copy(update={"type": "Finding"}))
+    with pytest.raises(PolicyViolation, match="inactive_target"):
+        guard(m, _recode(m, "n1", RA_OLD_PARENT), None, GenContext(fake_h, ctx.config, floors))
