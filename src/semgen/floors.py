@@ -1,4 +1,7 @@
-"""PhecodeFloorPolicy: deterministic containment rule deciding whether a disorder may lift to a parent (DRAFT)."""
+"""PhecodeFloorPolicy: the `phecodex` floor mode, a deterministic containment rule for lifting any SNOMED-coded node (DRAFT).
+
+Selectable alongside `snomed_boundary` (see snomed_floor.py); behaviour is unchanged by the recursive-ancestor work.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -44,7 +47,7 @@ class PhecodeFloorPolicy:
 
     @property
     def provenance(self) -> dict:
-        return {"floor_source": "phecodex", "phecode_level": self.level,
+        return {"mode": "phecodex", "floor_source": "phecodex", "phecode_level": self.level,
                 "icd10_map_refset": self._icd.refset_id, "icd10_map_release": self._icd.release}
 
     def phecodes(self, c: str) -> frozenset[str]:

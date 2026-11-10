@@ -90,3 +90,56 @@ def test_config_sha256():
 def test_invalid_configs_fail_at_load(tmp_path, mutate, msg):
     d = yaml.safe_load(open(CFG)); mutate(d); p = tmp_path / "c.yaml"; p.write_text(yaml.safe_dump(d))
     with pytest.raises(ConfigError, match=msg): load_config(p)
+
+
+# --- floor_policy ---------------------------------------------------------------
+def _load_mut(tmp_path, mutate):
+    d = yaml.safe_load(open(CFG)); mutate(d); p = tmp_path / "c.yaml"; p.write_text(yaml.safe_dump(d))
+    return load_config(p)
+
+
+def test_default_mode_is_snomed_boundary():
+    c = load_config(CFG)
+    assert c.floor_policy.mode == "snomed_boundary" and c.max_candidates == 50000
+    b = c.floor_policy.snomed_boundary
+    assert b.max_descendants == 2500 and b.characteristic_type == "inferred"
+    assert [(r.fsn, r.reason.startswith("Structural")) for r in b.excluded_ancestor_roots] == [
+        ("Substance categorized by structure (substance)", True)]
+
+
+def test_explicit_empty_exclusions_legal(tmp_path):
+    c = _load_mut(tmp_path, lambda d: d["floor_policy"]["snomed_boundary"].update(excluded_ancestor_roots=[]))
+    assert c.floor_policy.snomed_boundary.excluded_ancestor_roots == ()
+
+
+def test_phecodex_mode_loads(tmp_path):
+    c = _load_mut(tmp_path, lambda d: d["floor_policy"].update(mode="phecodex"))
+    assert c.floor_policy.mode == "phecodex" and c.floor_source is not None
+
+
+def test_floor_source_optional_under_snomed_boundary(tmp_path):
+    assert _load_mut(tmp_path, lambda d: d.pop("floor_source")).floor_source is None
+
+
+def test_floor_source_required_under_phecodex(tmp_path):
+    def m(d): d.pop("floor_source"); d["floor_policy"]["mode"] = "phecodex"
+    with pytest.raises(ConfigError, match="floor_source"): _load_mut(tmp_path, m)
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda d: d.pop("floor_policy"), "floor_policy"),
+    (lambda d: d["floor_policy"].update(mode="unrestricted"), "mode"),
+    (lambda d: d["floor_policy"].pop("snomed_boundary"), "snomed_boundary"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(characteristic_type="stated"), "characteristic_type"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(max_descendants=0), "max_descendants"),
+    (lambda d: d.update(max_candidates=0), "max_candidates"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].pop("excluded_ancestor_roots"), "excluded_ancestor_roots"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(excluded_ancestor_root=[]), "excluded_ancestor_root"),
+    (lambda d: d["floor_policy"]["snomed_boundary"]["excluded_ancestor_roots"][0].update(raeson="x"), "raeson"),
+    (lambda d: d["floor_policy"].update(snomed_bounary={}), "snomed_bounary"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(max_descendants="2500"), "max_descendants"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(max_descendants=True), "max_descendants"),
+    (lambda d: d["floor_policy"]["snomed_boundary"].update(max_descendants=2500.0), "max_descendants"),
+])
+def test_invalid_floor_policy_rejected(tmp_path, mutate, msg):
+    with pytest.raises(ConfigError, match=msg): _load_mut(tmp_path, mutate)

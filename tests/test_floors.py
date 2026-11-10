@@ -149,7 +149,7 @@ def test_bad_level_rejected(fake_h):
 
 
 def test_provenance_and_json_safe(fake_floors):
-    assert fake_floors.provenance == {"floor_source": "phecodex", "phecode_level": "first_decimal",
+    assert fake_floors.provenance == {"mode": "phecodex", "floor_source": "phecodex", "phecode_level": "first_decimal",
                                       "icd10_map_refset": "447562003", "icd10_map_release": "TEST"}
     for d in (fake_floors.check_lift(BRCA, MAL_THORAX), fake_floors.check_lift(BRCA, NEO_BREAST),
               fake_floors.check_lift(RA, DISEASE)):

@@ -1,11 +1,21 @@
-"""Concept lift: replace a node's code by a direct IS-A parent, bounded by the PhecodeX floor policy."""
+"""Concept lift: replace a node's code by a direct IS-A parent, bounded by the selected floor policy.
+
+Reads upward only (parents), never downward. A present value or concept-dependent attribute blocks the lift;
+the policy (snomed_boundary or phecodex) then accepts or blocks each active parent. Repeated lifts (the climb)
+are driven by the lattice, one step at a time.
+"""
 from __future__ import annotations
 
-from semgen.model import Motif
+from semgen.model import Motif, Node
 from semgen.operators.base import (CLINICAL_TYPES, Blocked, ChangeRecord, GenContext, Move,
                                    OperatorResult)
 
 OP = "concept_lift"
+
+
+def is_liftable(node: Node) -> bool:
+    return (node.polarity == "present" and node.type in CLINICAL_TYPES
+            and node.role not in {"context", "patient"} and node.code is not None)
 
 
 def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
@@ -13,19 +23,15 @@ def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
     moves: list[Move] = []
     blocked: list[Blocked] = []
     for node in sorted(motif.nodes, key=lambda n: n.id):
-        if (node.polarity != "present" or node.type not in CLINICAL_TYPES
-                or node.role in {"context", "patient"} or node.code is None):
+        if not is_liftable(node):
             continue
         code = node.code
 
-        def block(reason: str, **extra) -> None:
+        def block(reason: str, /, **extra) -> None:
             blocked.append(Blocked(OP, node.id, reason, {"code": code, **extra}))
 
         if not h.is_active(code):
             block("unknown_concept")
-            continue
-        if not h.parents(code):
-            block("no_parent")
             continue
         if node.value is not None:
             block("carries_value")
@@ -33,6 +39,9 @@ def concept_lift(motif: Motif, ctx: GenContext) -> OperatorResult:
         dependent = sorted(a for a in node.attrs if cfg.attr_is_concept_dependent(a))
         if dependent:
             block("concept_dependent_attr", attrs=dependent)
+            continue
+        if not h.parents(code):
+            block("no_parent")
             continue
         parents = sorted(h.parents(code))
         for p in parents:

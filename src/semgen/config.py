@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
 
 from semgen.model import Interval
 
@@ -93,12 +93,52 @@ def _build_floor_source(raw: Any) -> FloorSourceConfig:
     return src
 
 
+class ExcludedRoot(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fsn: str
+    reason: str
+
+
+class SnomedBoundaryConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_descendants: StrictInt
+    characteristic_type: Literal["inferred"]
+    excluded_ancestor_roots: tuple[ExcludedRoot, ...]
+
+
+class FloorPolicyConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    mode: Literal["snomed_boundary", "phecodex"]
+    snomed_boundary: SnomedBoundaryConfig | None = None
+
+
+def _build_floor_policy(raw: Any) -> FloorPolicyConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("floor_policy is required and must be a mapping")
+    if raw.get("mode") not in ("snomed_boundary", "phecodex"):
+        raise ConfigError(f"floor_policy mode {raw.get('mode')!r} must be 'snomed_boundary' or 'phecodex'")
+    try:
+        fp = FloorPolicyConfig.model_validate(raw)
+    except ValidationError as e:
+        raise ConfigError(f"invalid floor_policy: {e}") from e
+    b = fp.snomed_boundary
+    if fp.mode == "snomed_boundary" and b is None:
+        raise ConfigError("floor_policy mode snomed_boundary requires a snomed_boundary block")
+    if b is not None and b.max_descendants < 1:
+        raise ConfigError(f"floor_policy snomed_boundary max_descendants {b.max_descendants} must be >= 1")
+    return fp
+
+
 class GenConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     status: str
     lvef_convention: str
-    floor_source: FloorSourceConfig
+    floor_policy: FloorPolicyConfig
+    floor_source: FloorSourceConfig | None = None
     attribute_flags: dict[str, Literal["concept_dependent", "concept_independent"]]
     value_ladders: tuple[Ladder, ...]
     attr_ladders: tuple[Ladder, ...]
@@ -107,6 +147,7 @@ class GenConfig(BaseModel):
     protected_roles: frozenset[str]
     allow_drop_absent: bool
     max_depth: int
+    max_candidates: int
 
     def value_ladder_for(self, code: str) -> Ladder | None:
         return next((l for l in self.value_ladders if code in l.applies_to_concepts), None)
@@ -179,7 +220,13 @@ def _check_cycles(parents: dict[str, str]) -> None:
 
 
 def _parse(raw: dict[str, Any]) -> GenConfig:
-    floor_source = _build_floor_source(raw["floor_source"])
+    floor_policy = _build_floor_policy(raw.get("floor_policy"))
+    floor_source = _build_floor_source(raw["floor_source"]) if raw.get("floor_source") is not None else None
+    if floor_policy.mode == "phecodex" and floor_source is None:
+        raise ConfigError("floor_source is required when floor_policy mode is phecodex")
+    max_candidates = raw["max_candidates"]
+    if not isinstance(max_candidates, int) or isinstance(max_candidates, bool) or max_candidates < 1:
+        raise ConfigError(f"max_candidates {max_candidates!r} must be an integer >= 1")
     # Build ladders in the controller-specified check order: unit, negative, laminar (per ladder).
     value_ladders = tuple(_build_ladder(k, v) for k, v in raw["value_ladders"].items())
     attr_ladders = tuple(_build_ladder(k, v) for k, v in raw["attr_ladders"].items())
@@ -194,13 +241,13 @@ def _parse(raw: dict[str, Any]) -> GenConfig:
     _check_cycles(parents)
     return GenConfig(
         status=raw["status"], lvef_convention=raw["lvef_convention"],
-        floor_source=floor_source,
+        floor_policy=floor_policy, floor_source=floor_source,
         attribute_flags=raw["attribute_flags"], value_ladders=value_ladders,
         attr_ladders=attr_ladders, time_ladder=time_ladder,
         relations=RelationHierarchy(parents=parents),
         protected_roles=frozenset(raw["protected_roles"]),
         allow_drop_absent=raw["negation_policy"]["allow_drop_absent"],
-        max_depth=raw["max_depth"])
+        max_depth=raw["max_depth"], max_candidates=max_candidates)
 
 
 def load_config(path: str | Path) -> GenConfig:

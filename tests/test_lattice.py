@@ -10,12 +10,12 @@ from semgen.order import check_order
 
 
 def test_depth_zero_is_root_only(ctx, fake_m1):
-    lat = enumerate_lattice(fake_m1, ctx, 0); assert list(lat.candidates) == [lat.root] and lat.edges == []
+    lat = enumerate_lattice(fake_m1, ctx, 0, climb=False); assert list(lat.candidates) == [lat.root] and lat.edges == []
 
 
 def test_depth1_matches_neighbors(ctx, fake_m1):
     from semgen.lattice import neighbors
-    lat = enumerate_lattice(fake_m1, ctx, 1); assert len(lat.candidates) == 1 + len(neighbors(fake_m1, ctx)[0])
+    lat = enumerate_lattice(fake_m1, ctx, 1, climb=False); assert len(lat.candidates) == 1 + len(neighbors(fake_m1, ctx)[0])
 
 
 def test_no_duplicates_and_min_depth(ctx, fake_m1):
@@ -55,7 +55,7 @@ def test_edge_depths_are_minimal(ctx, fake_m1):
 
 def test_blocked_only_from_expanded(ctx, fake_m1, fake_m2):
     for m in (fake_m1, fake_m2):
-        lat = enumerate_lattice(m, ctx, 2)
+        lat = enumerate_lattice(m, ctx, 2, climb=False)
         for h, _ in lat.blocked:
             assert h in lat.candidates and lat.candidates[h].depth < 2
 
@@ -75,7 +75,7 @@ def test_root_proof_failure(ctx, fake_m1, monkeypatch):
     monkeypatch.setattr(L, "neighbors", neighbors_then_flag)
     monkeypatch.setattr(L, "check_order", late)
     with pytest.raises(GeneralizationOrderError, match="root proof failed: forced at n1"):
-        enumerate_lattice(fake_m1, ctx, 1)
+        enumerate_lattice(fake_m1, ctx, 1, climb=False)
 
 
 def test_candidate_count_matches_distinct_hashes(ctx, fake_m1, fake_m2):
@@ -104,3 +104,86 @@ def test_timing_and_counts(ctx, fake_m1, fake_m2):
     el = time.perf_counter() - t
     print("elapsed", el)
     assert el < 10
+
+
+# ---- termination reporting ----
+
+def _gctx(blocked=()):
+    from tests.test_recursive_lift import _ctx
+    return _ctx(blocked)
+
+
+def _gm(code="SPEC"):
+    from tests.support.hierarchy_graph import one_disorder_motif
+    return one_disorder_motif(code)
+
+
+def test_depth_cap_with_moves_is_depth_limited():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=2)
+    assert lat.status == "depth_limited" and lat.unexpanded >= 1
+
+
+def test_cap_on_dead_end_is_exhausted():
+    lat = enumerate_lattice(_gm("C4"), _gctx({_root_id()}), max_depth=1)
+    assert lat.status == "exhausted" and lat.unexpanded == 0
+
+
+def _root_id():
+    from semgen.snomed import ROOT_ID
+    return ROOT_ID
+
+
+def test_depth_zero_with_moves_is_depth_limited():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=0)
+    assert lat.status == "depth_limited" and lat.unexpanded == 1
+
+
+def test_full_exploration_is_exhausted():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=30)
+    assert lat.status == "exhausted" and lat.unexpanded == 0
+
+
+def test_hand_built_lattice_is_unknown():
+    assert L.Lattice("r", {}, [], []).status == "unknown"
+
+
+def test_candidate_budget_is_reported():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=30, max_candidates=3, climb=False)
+    assert lat.status == "candidate_limited" and len(lat.candidates) <= 3 and lat.unexpanded >= 1
+    assert all(e.child in lat.candidates and e.parent in lat.candidates for e in lat.edges)
+
+
+def test_budget_run_is_deterministic():
+    a, b = (enumerate_lattice(_gm(), _gctx(), max_depth=30, max_candidates=3) for _ in range(2))
+    assert list(a.candidates) == list(b.candidates) and a.edges == b.edges and a.status == b.status
+
+
+def test_budget_of_one_keeps_only_root():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=30, max_candidates=1, climb=False)
+    assert list(lat.candidates) == [lat.root] and lat.edges == [] and lat.status == "candidate_limited"
+
+
+@pytest.mark.parametrize("bad", [0, -1, True, 2.5, "3"])
+def test_bad_max_candidates(bad):
+    with pytest.raises(ValueError):
+        enumerate_lattice(_gm(), _gctx(), max_depth=1, max_candidates=bad)
+
+
+def test_any_frontier_motif_counts_not_just_first():
+    lat = enumerate_lattice(_gm(), _gctx({"G"}), 1)  # frontier P1 (no moves), P2 (one move)
+    assert lat.status == "depth_limited" and lat.unexpanded == 2
+
+
+def test_budget_hit_keeps_later_edge_to_existing_candidate():
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=30, max_candidates=4, climb=False)  # P2: BLOCKED dropped, then G exists
+    codes = {h: c.motif.node("n1").code for h, c in lat.candidates.items()}
+    assert lat.status == "candidate_limited" and "BLOCKED" not in codes.values()
+    assert any(codes[e.parent] == "P2" and codes[e.child] == "G" for e in lat.edges)
+
+
+def test_budget_hit_stops_search_after_current_motif(monkeypatch):
+    calls = []
+    real = L.neighbors
+    monkeypatch.setattr(L, "neighbors", lambda m, c: (calls.append(m.node("n1").code), real(m, c))[1])
+    lat = enumerate_lattice(_gm(), _gctx(), max_depth=30, max_candidates=4)
+    assert calls == ["SPEC", "P1", "P2"] and lat.unexpanded == 1  # G was added but never expanded

@@ -1,8 +1,19 @@
 # semgen generalization config.
 # Every value in this file is DRAFT — not clinically approved.
-# Floors come from `floor_source` (PhecodeX), not from a list in this file.
+# Concept-lift floors come from `floor_policy` (snomed_boundary by default, or phecodex via `floor_source`), not from a list here.
 status: "DRAFT — not clinically approved"
 lvef_convention: ESC2022_lt40
+
+# Floor policy: which rule bounds concept lift. Required; there is no unrestricted mode.
+# snomed_boundary is a DRAFT computational policy, not a clinically validated boundary.
+floor_policy:
+  mode: snomed_boundary          # snomed_boundary | phecodex
+  snomed_boundary:
+    max_descendants: 2500        # DRAFT broadness heuristic, not a clinical rule
+    characteristic_type: inferred
+    excluded_ancestor_roots:
+      - fsn: "Substance categorized by structure (substance)"
+        reason: "Structural chemical grouping is not an accepted drug generalization boundary"
 
 # Floor source (Stage 1): floors are derived from published sources (SNOMED -> ICD-10
 # -> PhecodeX), not hand-picked. Licence unconfirmed. POC only.
@@ -80,3 +91,4 @@ negation_policy:
   allow_drop_absent: false
 
 max_depth: 4
+max_candidates: 50000

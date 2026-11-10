@@ -443,3 +443,21 @@ Open questions for the team
 • Which drug class level is acceptable as a floor, and is the SNOMED substance hierarchy deep enough, or is ATC needed?
 • Who signs off the value and time ladders (clinician review)?
 • May negated constraints ever be dropped, and under what policy?
+Amendment, 4 Nov 2026: recursive ancestor generalization
+This section amends the text above; earlier sections are kept as written. The full design is in docs/plans/recursive-ancestor-generalization.md (decisions R1–R10).
+Generalization versus phenotype matching
+• Generalization moves up: a concept lift replaces a code by a direct IS-A parent, and repeated lifts climb the ancestors. It reads parents only.
+• Phenotype matching moves down: deciding which patients or concepts a generalized motif covers means reading descendants. That is not part of generalization and is not built. The only descendant reads in the code belong to the floor policies (the PhecodeX containment rule and the descendant count in snomed_boundary).
+Decisions
+• R1 Default floor: floor_policy.mode is required, snomed_boundary by default, phecodex selectable. No unrestricted mode and no fallback.
+• R2 Descendant ceiling: a parent passes when its strict descendant count is at most max_descendants (2500, DRAFT). The count is of distinct active transitive descendants, self excluded. It is a computational broadness heuristic, not a clinical rule.
+• R3 Excluded roots: listed by FSN, each resolving to exactly one active concept or the run fails. Mechanism and disposition groupers such as Antifolate are not excluded; this is a documented limitation. The excluded subtree also contains recognised drug classes, not only chemical structures: in SNOMED release 20260201 Biguanide hypoglycemic agent (metformin's only parent) and Anthracycline (doxorubicin's only parent) sit inside it, so metformin reaches nothing under snomed_boundary (reached_floor with 0 reached), while osimertinib and methotrexate still lift through their mechanism parents. This is a known DRAFT consequence for future review; the exclusion is unchanged.
+• R4 Semantic tag: a parent must have the child's FSN semantic tag; no parseable tag fails closed.
+• R5 State-based lift eligibility: a value or concept-dependent attribute on the current motif blocks lifting. No historical blocking.
+• R6 Removal protection (rule change): attribute_removal no longer removes a concept-dependent attribute, including unflagged ones. Guard rejects the same removal independently. Values can still be removed, so doxorubicin with a dose cannot be lifted while LVEF can lose its value and then lift. This amends D3, which had protected such attributes only from lifting.
+• R7 Search limits: max_depth bounds combined operations; max_candidates (default 50000) bounds the combined lattice.
+• R8 Per-node climb: from the root motif only, each liftable node follows accepted lifts until none remain. It is not bounded by max_depth or max_candidates, passes the same guard and order proof, and yields candidates with origin axis.
+• R9 Termination: motif status is exhausted, depth_limited or candidate_limited, and only exhausted is complete. Per-node status is reached_floor, reached_hierarchy_top (any branch) or policy_restricted.
+• R10 PhecodeX keeps its behaviour under mode phecodex. No similarity engine is built.
+Termination semantics
+A run reports how it stopped (termination.json) instead of implying completeness. A cap that lands on a dead end is exhausted. For an exhausted run, blocked records can differ by cap because blocks on a final dead-end frontier are not recorded. The M1–M4 results in the README are synthetic, DRAFT and not clinically validated; BioPathNet is not integrated and no patient data is used.

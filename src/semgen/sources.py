@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Callable
 
-from semgen.config import FloorSourceConfig, load_config
+from semgen.config import ConfigError, FloorSourceConfig, load_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 URL = "https://raw.githubusercontent.com/PheWAS/phecodeX/{commit}/{file}"
@@ -90,7 +90,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd != "fetch":
         ap.print_usage(sys.stderr)
         return 2
-    src = load_config(REPO_ROOT / "config" / "generalization.yaml").floor_source
+    try:
+        src = load_config(REPO_ROOT / "config" / "generalization.yaml").floor_source
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if src is None:
+        print("error: no floor_source configured (floor_policy mode snomed_boundary needs no PhecodeX files)",
+              file=sys.stderr)
+        return 1
     d = args.dir or default_phecodex_dir(src)
     try:
         fetch_phecodex(d, src, report=lambda n, s: print(f"{n}: {s}"))

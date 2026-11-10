@@ -5,7 +5,7 @@ from semgen.operators.attribute_removal import attribute_removal
 
 def test_m1_removals(ctx, fake_m1):
     got = {(m.change.target, m.change.field) for m in attribute_removal(fake_m1, ctx).moves}
-    assert got == {("n1", "attrs.age_at_dx"), ("n2", "attrs.cumulative_dose"), ("n3", "value")}
+    assert got == {("n1", "attrs.age_at_dx"), ("n3", "value")}
 
 
 def test_child_lacks_only_that_field(ctx, fake_m1):
@@ -31,3 +31,18 @@ def test_attr_move_drops_only_that_attr(ctx, fake_m1):
     mv = next(m for m in attribute_removal(fake_m1, ctx).moves if m.change.field == "attrs.age_at_dx")
     assert dict(mv.child.node("n1").attrs) == {} and mv.change.after is None
     assert mv.child.node("n2") == fake_m1.node("n2")
+
+
+def test_dose_removal_blocked_and_logged(ctx, fake_m1):
+    res = attribute_removal(fake_m1, ctx)
+    assert all(m.change.field != "attrs.cumulative_dose" for m in res.moves)
+    b = next(x for x in res.blocked if x.target == "n2")
+    assert (b.op, b.reason, b.detail) == ("attribute_removal", "concept_dependent_attr", {"attr": "cumulative_dose"})
+
+
+def test_unflagged_attr_not_removed(ctx, fake_m1):
+    n = fake_m1.node("n1")
+    m = fake_m1.replace_node(n.model_copy(update={"attrs": {"mystery": Interval.point(1, "x")}}))
+    res = attribute_removal(m, ctx)
+    assert all(x.change.field != "attrs.mystery" for x in res.moves)
+    assert any(b.detail == {"attr": "mystery"} for b in res.blocked)

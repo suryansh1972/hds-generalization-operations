@@ -32,13 +32,15 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--config", type=Path, default=REPO_ROOT / "config" / "generalization.yaml")
     run.add_argument("--rf2", type=Path, default=None)
     run.add_argument("--phecodex", type=Path, default=None)
+    run.add_argument("--floor-policy", choices=("snomed_boundary", "phecodex"), default=None,
+                     help="override floor_policy.mode from the config")
     run.add_argument("--depth", type=_nonneg_int, default=None)
     run.add_argument("--out", type=Path, required=True)
     return ap
 
 
 def _run(args: argparse.Namespace) -> int:
-    ctx = build_context(args.config, args.rf2, args.phecodex)
+    ctx = build_context(args.config, args.rf2, args.phecodex, args.floor_policy)
     depth = ctx.config.max_depth if args.depth is None else args.depth
     header = run_header(ctx, args.config, depth)
     motifs = load_motifs(args.motifs, ctx.hierarchy)
@@ -50,7 +52,7 @@ def _run(args: argparse.Namespace) -> int:
         lat = enumerate_lattice(m, ctx, depth)
         write_lattice(lat, m.motif_id, args.out, header)
         print(f"{m.motif_id} depth={depth} candidates={len(lat.candidates)} "
-              f"edges={len(lat.edges)} blocked={len(lat.blocked)}")
+              f"edges={len(lat.edges)} blocked={len(lat.blocked)} status={lat.status}")
     return 0
 
 

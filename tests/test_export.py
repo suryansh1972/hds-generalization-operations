@@ -15,7 +15,7 @@ MOTIFS = str(REPO / "data" / "motifs" / "synthetic_motifs.json")
 R11_KEYS = {"snomed_release", "snomed_edition", "config_sha256", "config_status", "lvef_convention",
             "temporal_semantics", "absent_semantics", "max_depth", "semgen_version", "floor_source",
             "phecode_level", "icd10_map_refset", "icd10_map_release", "phecodex_commit",
-            "phecodex_sha256", "ccsr_check", "source_licences"}
+            "phecodex_sha256", "ccsr_check", "source_licences", "floor_policy", "max_candidates"}
 
 
 def test_files_and_header(tmp_path, ctx, fake_m1):
@@ -115,14 +115,16 @@ def test_cli_bad_config_exit_1():
 @pytest.mark.snomed
 @pytest.mark.phecodex
 def test_cli_end_to_end(tmp_path, real_ctx):
-    r = _cli("run", "--motifs", MOTIFS, "--config", CFG,
+    r = _cli("run", "--motifs", MOTIFS, "--config", CFG, "--floor-policy", "phecodex",
              "--depth", "1", "--out", str(tmp_path))
     assert r.returncode == 0, r.stderr
     lines = r.stdout.strip().splitlines()
-    assert len(lines) == 4 and all(re.fullmatch(r"\S+ depth=1 candidates=\d+ edges=\d+ blocked=\d+", l) for l in lines)
+    assert len(lines) == 4 and all(re.fullmatch(r"\S+ depth=1 candidates=\d+ edges=\d+ blocked=\d+ status=\w+", l) for l in lines)
     dirs = [d for d in tmp_path.iterdir() if d.is_dir()]
     assert len(dirs) == 4
-    assert all(json.loads((d / "run_header.json").read_text())["max_depth"] == 1 for d in dirs)
+    hs = [json.loads((d / "run_header.json").read_text()) for d in dirs]
+    assert all(h["max_depth"] == 1 and h["floor_policy"]["mode"] == "phecodex" for h in hs)
+    assert all({"floor_source", "phecodex_commit", "phecodex_sha256", "source_licences"} <= set(h) for h in hs)
 
 
 @pytest.mark.parametrize("bad", ["../x", "/abs", "", ".", "..", "a/b"])
@@ -156,3 +158,95 @@ def test_cli_duplicate_ids_exit_1_writes_nothing(tmp_path, real_ctx):
 def test_cli_negative_depth_is_usage_error():
     r = _cli("run", "--motifs", "x.json", "--out", "/tmp/never", "--depth", "-1")
     assert r.returncode == 2 and "Traceback" not in r.stderr
+
+
+def test_termination_json_written(tmp_path, ctx, fake_m1):
+    lat = enumerate_lattice(fake_m1, ctx, 0, climb=False)
+    paths = write_lattice(lat, "M1", tmp_path, run_header(ctx, CFG, 0))
+    text = paths["termination"].read_text()
+    assert text.endswith("\n")
+    assert json.loads(text) == {"status": "depth_limited", "complete": False, "max_depth": 0,
+                                "max_candidates": ctx.config.max_candidates, "unexpanded_frontier": 1, "candidates": 1,
+                                "axes": {}}
+    assert text == json.dumps(json.loads(text), sort_keys=True, indent=2) + "\n"
+
+
+def test_termination_complete_when_exhausted(tmp_path):
+    from tests.test_lattice import _gctx, _gm
+    c = _gctx()
+    lat = enumerate_lattice(_gm(), c, 30)
+    paths = write_lattice(lat, "G", tmp_path, {"max_depth": 30, "max_candidates": c.config.max_candidates})
+    t = json.loads(paths["termination"].read_text())
+    assert t["complete"] is True and t["status"] == "exhausted" and t["max_depth"] == 30
+
+
+def test_chain_longer_than_depth_is_not_claimed_complete(tmp_path):
+    from tests.test_lattice import _gctx, _gm
+    c = _gctx()
+    lat = enumerate_lattice(_gm(), c, 3)
+    paths = write_lattice(lat, "G", tmp_path, {"max_depth": 3, "max_candidates": c.config.max_candidates})
+    assert json.loads(paths["termination"].read_text())["complete"] is False
+
+
+@pytest.mark.parametrize("make", ["budget", "hand_built"])
+def test_non_exhausted_lattice_is_not_complete(tmp_path, make):
+    from semgen.lattice import Lattice
+    from tests.test_lattice import _gctx, _gm
+    c = _gctx()
+    lat = enumerate_lattice(_gm(), c, 30, 3) if make == "budget" else Lattice("r", {}, [], [])
+    paths = write_lattice(lat, "G", tmp_path, {"max_depth": 30, "max_candidates": 3})
+    t = json.loads(paths["termination"].read_text())
+    assert t["complete"] is False and t["status"] == ("candidate_limited" if make == "budget" else "unknown")
+
+
+def test_termination_written_last(tmp_path, monkeypatch):
+    import semgen.export as E
+    from tests.test_lattice import _gctx, _gm
+    lat = enumerate_lattice(_gm(), _gctx(), 30)
+    real = E._write
+    def boom(path, text):
+        if path.name == "blocked.jsonl":
+            raise OSError("disk full")
+        real(path, text)
+    monkeypatch.setattr(E, "_write", boom)
+    with pytest.raises(OSError):
+        write_lattice(lat, "G", tmp_path, {"max_depth": 30, "max_candidates": 3})
+    assert not (tmp_path / "G" / "termination.json").exists()
+
+
+def test_axes_in_termination_json(tmp_path):
+    from tests.test_lattice import _gctx, _gm
+    c = _gctx({"BLOCKED"})
+    lat = enumerate_lattice(_gm(), c, 2)
+    paths = write_lattice(lat, "G", tmp_path, {"max_depth": 2, "max_candidates": c.config.max_candidates})
+    t = json.loads(paths["termination"].read_text())
+    ax = lat.axes["n1"]
+    assert t["axes"] == {"n1": {"status": "reached_hierarchy_top", "reached": list(ax.reached),
+                                "stopped_by": ["inactive_parent", "no_parent", "outside_floor"]}}
+    assert ax.reached == tuple(sorted(ax.reached))
+    assert t["status"] == "depth_limited" and t["complete"] is False and t["candidates"] == len(lat.candidates)
+
+
+def test_origin_in_candidates(tmp_path):
+    from tests.test_lattice import _gctx, _gm
+    c = _gctx()
+    lat = enumerate_lattice(_gm(), c, 1)
+    paths = write_lattice(lat, "G", tmp_path, {"max_depth": 1, "max_candidates": c.config.max_candidates})
+    rows = [json.loads(l) for l in paths["candidates"].read_text().splitlines()]
+    assert {r["hash"]: r["origin"] for r in rows} == {h: x.origin for h, x in lat.candidates.items()}
+    assert {r["origin"] for r in rows if r["depth"] <= 1} == {"lattice"} and {r["origin"] for r in rows if r["depth"] > 1} == {"axis"}
+    assert [(r["depth"], r["hash"]) for r in rows] == sorted((r["depth"], r["hash"]) for r in rows)
+
+
+def test_axes_present_and_empty_without_liftable_node(tmp_path):
+    from semgen.motif_io import parse_motif
+    from tests.test_lattice import _gctx
+    m = parse_motif({"motif_id": "NONE", "anchor": "n1",
+                     "nodes": [{"id": "P", "type": "Patient", "role": "patient"},
+                               {"id": "n1", "type": "Disorder", "code": "SPEC", "polarity": "absent", "role": "anchor"}],
+                     "edges": [{"s": "P", "t": "n1", "rel": "has_condition", "prov": "asserted"}]}, None)
+    c = _gctx()
+    lat = enumerate_lattice(m, c, 1)
+    assert lat.axes == {}
+    paths = write_lattice(lat, "NONE", tmp_path, {"max_depth": 1, "max_candidates": c.config.max_candidates})
+    assert json.loads(paths["termination"].read_text())["axes"] == {}

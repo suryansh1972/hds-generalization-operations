@@ -10,7 +10,7 @@
 
 **Spec:** `docs/semantic-generalization-methodology.md`, **as amended by "Decisions that supersede the methodology" below**. Where the two disagree, the amendments win.
 
-**Amended by Stage 1** (`docs/plans/stage1-phecodex-floors.md`): disorder floors are now derived from SNOMED→ICD-10→PhecodeX via `ctx.floors` (a `FloorPolicy`); the YAML `floors` list, `check_floors` and the `at_floor` reason no longer exist. Tasks 1–11 below describe the code as originally built and are kept for history.
+**Amended by Stage 1** (`docs/plans/stage1-phecodex-floors.md`): disorder floors are now derived from SNOMED→ICD-10→PhecodeX via `ctx.floors` (a `FloorPolicy`); the YAML `floors` list, `check_floors` and the `at_floor` reason no longer exist. **Further amended 4 Nov 2026** by `docs/plans/recursive-ancestor-generalization.md` (default `snomed_boundary` floor, per-node climb, termination). Tasks 1–11 below describe the code as originally built and are kept for history.
 
 ---
 
@@ -22,7 +22,7 @@ These were settled in the design review. Each one changes or pins something in t
 |---|---|---|
 | D1 | Scope | POC. No support counting, utility, disclosure, BioPathNet calls, fuzzy/LLM matching, DuckDB, FalkorDB, rustworkx, clingo, Graphviz, Parquet, PhecodeX/ATC/LOINC/RxNorm tables. Deployment and licences are out of scope. |
 | D2 | Floors | A flat list of floor concepts in YAML: `363346000` Malignant neoplastic disease, `73211009` Diabetes mellitus (marked DRAFT). A node's applicable floors are the listed floors its concept is descendant-or-self of. A lift target must be descendant-or-self of **every** applicable floor (G1). No applicable floor → no lift, logged `blocked: no_floor`. No Substance or Observable floors are invented, so those lifts are blocked. — **Superseded by Stage 1 (S1–S10).** |
-| D3 | Lift blockers | Never lift a node that has a `value` (F7) or any concept-dependent attribute (G2). Attribute flags live in YAML; an attribute with no flag is treated as concept-dependent. `age_at_dx` = independent; `cumulative_dose` = dependent. |
+| D3 | Lift blockers | Never lift a node that has a `value` (F7) or any concept-dependent attribute (G2). Attribute flags live in YAML; an attribute with no flag is treated as concept-dependent. `age_at_dx` = independent; `cumulative_dose` = dependent. — **Extended by R5/R6** (recursive-ancestor plan): lift eligibility is state-based, and concept-dependent attributes are now also protected from `attribute_removal`. |
 | D4 | Intervals | Every interval stores `lo`, `hi`, `lo_closed`, `hi_closed`, `unit`. `None` bound = unbounded. "Unconstrained" = the value/attr/window is **absent**, never (−∞, ∞). |
 | D5 | Ladders | A ladder is a laminar set of rungs (any two rungs are nested or disjoint), all in one unit. Coarsening moves to the **narrowest rung that strictly contains** the current interval; none → no move. The final "→ removed" step is not a rung (attribute removal does that). Ladders (DRAFT): LVEF `[0,40) [40,50) [50,55) [55,101) [0,50) [0,55)` (ESC `<40` convention); eGFR `[0,15) [15,30) [30,45) [45,60) [60,90) [90,∞) [30,60) [0,60)`; ALT ×ULN `[0,1] (1,3] (3,5] (5,20] (20,∞) (3,∞) (1,∞)`; age `[65,80) [90,∞) [65,∞)`; cumulative dose `[0,100) [100,250) [250,∞) [100,∞)`. |
 | D6 | Time | Window = target time − source time in days. Ladder `[0,30] [0,90] [0,365] [0,∞)`. **"Co-occurs" is removed.** No time constraint = the `followed_by` edge is removed (edge removal). Negative lower bounds are rejected. Fractional days allowed. Matching semantics: "certainly within". |

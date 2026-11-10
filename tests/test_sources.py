@@ -120,3 +120,21 @@ def test_cli_no_subcommand_exits_2():
     import subprocess, sys
     r = subprocess.run([sys.executable, "-m", "semgen.sources"], capture_output=True, text=True)
     assert r.returncode == 2 and "usage" in (r.stdout + r.stderr).lower()
+
+
+def test_main_missing_floor_source_errors(tmp_path, monkeypatch, capsys):
+    import semgen.sources as s
+    raw = yaml.safe_load(Path(CFG).read_text()); raw.pop("floor_source")
+    (tmp_path / "config").mkdir(); (tmp_path / "config" / "generalization.yaml").write_text(yaml.safe_dump(raw))
+    monkeypatch.setattr(s, "REPO_ROOT", tmp_path)
+    assert s.main(["fetch"]) == 1
+    assert capsys.readouterr().err.startswith("error:")
+
+
+def test_main_phecodex_without_floor_source_errors(tmp_path, monkeypatch, capsys):
+    import semgen.sources as s
+    raw = yaml.safe_load(Path(CFG).read_text()); raw.pop("floor_source"); raw["floor_policy"]["mode"] = "phecodex"
+    (tmp_path / "config").mkdir(); (tmp_path / "config" / "generalization.yaml").write_text(yaml.safe_dump(raw))
+    monkeypatch.setattr(s, "REPO_ROOT", tmp_path)
+    assert s.main(["fetch"]) == 1
+    assert capsys.readouterr().err.startswith("error:")

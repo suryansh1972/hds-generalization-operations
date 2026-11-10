@@ -14,6 +14,8 @@ import polars as pl
 ROOT_ID = "138875005"
 IS_A = "116680003"
 INFERRED = "900000000000011006"
+CACHE_VERSION = "2"
+_TAG_RE = re.compile(r"\(([^()]+)\)$")
 FSN_TYPE = "900000000000003001"
 DEFAULT_RF2_DIR = Path(
     "/Users/suryanshshivaprasad/Documents/HDX/SnomedCT_InternationalRF2_PRODUCTION_20260201T120000Z"
@@ -28,7 +30,12 @@ class FsnError(Exception):
 
 
 class Hierarchy:
-    """Inferred IS-A graph. Only upward (child -> parent) edges are ever read."""
+    """Inferred IS-A graph readable in both directions: parents/ancestors go up, children/descendants go down.
+
+    Lift reads upward only (parents, ancestors); downward reads (children, descendants) are for explicit queries.
+    """
+
+    characteristic_type = "inferred"
 
     def __init__(
         self,
@@ -50,6 +57,7 @@ class Hierarchy:
         self._memo: dict[str, frozenset[str]] = {}
         self._children: dict[str, set[str]] | None = None
         self._desc_memo: dict[str, frozenset[str]] = {}
+        self._count_memo: dict[str, int] = {}
 
     @classmethod
     def from_maps(
@@ -73,6 +81,7 @@ class Hierarchy:
         state["_memo"] = {}
         state["_children"] = None
         state["_desc_memo"] = {}
+        state["_count_memo"] = {}
         return state
 
     def parents(self, c: str) -> frozenset[str]:
@@ -116,15 +125,46 @@ class Hierarchy:
     def ancestors_or_self(self, c: str) -> frozenset[str]:
         return self.ancestors(c) | {c}
 
-    def descendants_or_self(self, c: str) -> frozenset[str]:
-        """ECL `<< c`: c plus every concept below it (iterative, memoised, activity not filtered)."""
+    def _child_index(self) -> dict[str, set[str]]:
         if self._children is None:
             children: dict[str, set[str]] = {}
             for child, ps in self._parents.items():
                 for p in ps:
                     children.setdefault(p, set()).add(child)
             self._children = children
-        children = self._children
+        return self._children
+
+    def children(self, c: str) -> frozenset[str]:
+        return frozenset(self._child_index().get(c, ()))
+
+    def descendants(self, c: str) -> frozenset[str]:
+        """Strict ECL `< c` (activity not filtered)."""
+        return self.descendants_or_self(c) - {c}
+
+    def descendant_count(self, c: str) -> int:
+        """Distinct active strict descendants; plain traversal, memoises integers only."""
+        if c in self._count_memo:
+            return self._count_memo[c]
+        children = self._child_index()
+        seen = {c}
+        stack = [c]
+        while stack:
+            for k in children.get(stack.pop(), ()):
+                if k not in seen:
+                    seen.add(k)
+                    stack.append(k)
+        seen.discard(c)
+        n = self._count_memo[c] = sum(1 for k in seen if k in self._active)
+        return n
+
+    def semantic_tag(self, c: str) -> str | None:
+        """Trailing parenthesised tag of an active concept's FSN, e.g. 'disorder'."""
+        m = _TAG_RE.search(self.fsn(c) or "")
+        return m.group(1) if m else None
+
+    def descendants_or_self(self, c: str) -> frozenset[str]:
+        """ECL `<< c`: c plus every concept below it (iterative, memoised, activity not filtered)."""
+        children = self._child_index()
         memo = self._desc_memo
         stack = [c]
         while stack:
@@ -191,7 +231,7 @@ def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -
     release = m.group(1) if m else "UNKNOWN"
     edition = "International" if "_INT_" in rf.name else "UNKNOWN"
 
-    sig = [str(d)]
+    sig = [str(d), f"v{CACHE_VERSION}"]
     for f in (cf, df, rf):
         st = f.stat()
         sig.append(f"{f.name}|{st.st_size}|{st.st_mtime_ns}")
@@ -206,6 +246,7 @@ def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -
                 h._memo = {}
                 h._children = None
                 h._desc_memo = {}
+                h._count_memo = {}
                 return h
         except Exception:
             pass  # corrupt cache: rebuild

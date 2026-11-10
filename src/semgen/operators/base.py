@@ -8,9 +8,12 @@ Conventions for every operator:
 - ``evidence``/``detail`` hold only JSON-safe values (str, int, float, bool, None and
   lists/dicts of those), with lists sorted or otherwise in a deterministic order.
 - Operators are pure: they never mutate the input motif.
-- ``concept_lift`` blocked reasons: ``carries_value``, ``concept_dependent_attr``,
-  ``unmapped`` (no PhecodeX anchors, any SNOMED-coded node), ``inactive_parent``
-  and ``outside_floor`` (a parent's active descendant leaves the child's anchors).
+- ``concept_lift`` blocked reasons: ``unknown_concept``, ``carries_value``, ``concept_dependent_attr``, ``no_parent``, ``inactive_parent``;
+  from the selected floor policy: snomed_boundary gives ``no_semantic_tag``, ``semantic_tag_changed``,
+  ``excluded_ancestor_root`` and ``above_descendant_ceiling``; phecodex gives ``unmapped`` (no PhecodeX
+  anchors, any SNOMED-coded node) and ``outside_floor`` (a parent's active descendant leaves the child's anchors).
+- ``attribute_removal`` blocked reason: ``concept_dependent_attr`` (detail ``{"attr": name}``);
+  only a value or a concept-independent attribute may be removed.
 """
 from __future__ import annotations
 
@@ -24,9 +27,18 @@ from semgen.model import Edge, Motif
 from semgen.snomed import Hierarchy
 
 CLINICAL_TYPES = frozenset({"Disorder", "Substance", "Observable", "Procedure", "Finding"})
+# Why a climb stops: the policy boundary, the top of the hierarchy, or any other reason (a restriction on the node).
+BOUNDARY_REASONS = frozenset({"outside_floor", "above_descendant_ceiling", "semantic_tag_changed",
+                              "excluded_ancestor_root", "inactive_parent"})
+TOP_REASONS = frozenset({"no_parent"})
 
 
 class FloorPolicy(Protocol):
+    """Decides whether a concept may lift to a parent; ``provenance`` carries ``mode`` and is written to the run header.
+
+    ``anchors`` is the policy's containment set (empty for snomed_boundary, which has none).
+    """
+
     def check_lift(self, child: str, parent: str) -> FloorDecision: ...
 
     def anchors(self, c: str) -> frozenset[str]: ...

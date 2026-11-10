@@ -97,3 +97,8 @@ def test_real_lattice_deterministic(real_motifs, real_ctx):
         assert {h: canonical_json(c.motif) for h, c in a.candidates.items()} == \
                {h: canonical_json(c.motif) for h, c in b.candidates.items()}
         assert {h: c.depth for h, c in a.candidates.items()} == {h: c.depth for h, c in b.candidates.items()}
+
+
+def test_phecodex_m3_n1_climb_still_stops_at_anchor(real_motifs, real_ctx):
+    lat = enumerate_lattice(_motif(real_motifs, "M3"), real_ctx, 4)
+    assert lat.axes["n1"].reached == ("254637007",)

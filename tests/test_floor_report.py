@@ -4,7 +4,7 @@ import sys
 import pytest
 
 from semgen.floor_report import COLUMNS, floor_report, rows_to_tsv
-from tests.conftest import BRCA, CKD, DM, DOX, MAL_THORAX, NEO_BREAST, T1DM, T2DM
+from tests.conftest import one_node_motif, BRCA, CKD, DM, DOX, MAL_THORAX, NEO_BREAST, T1DM, T2DM
 
 
 def _row(m, node, code, fsn, decision, parent=None, anchors="", bd=None, bf=None, anchor=None, pf=None):
@@ -64,3 +64,21 @@ def test_real_m3_allowed_and_m1_blocked(real_motifs, real_ctx):
 def test_cli_help():
     r = subprocess.run([sys.executable, "-m", "semgen.floor_report", "--help"], capture_output=True, text=True)
     assert r.returncode == 0 and "--motifs" in r.stdout
+
+
+def test_snomed_boundary_rows_have_empty_anchors():
+    from semgen.config import ExcludedRoot, SnomedBoundaryConfig, load_config
+    from semgen.operators.base import GenContext
+    from semgen.snomed import Hierarchy
+    from semgen.snomed_floor import SnomedBoundaryPolicy
+    from tests.conftest import _CONFIG_PATH as CFG_PATH
+    parents = {"C": {"P", "X", "Z"}, "P": {"138875005"}, "X": {"138875005"}, "Z": {"138875005"}, "138875005": set()}
+    fsn = {c: f"{c} (disorder)" for c in parents} | {"X": "X (finding)"}
+    h = Hierarchy.from_maps(parents, fsn, set(parents) - {"Z"}, "REL", "ED")
+    pol = SnomedBoundaryPolicy(h, SnomedBoundaryConfig(max_descendants=2500, characteristic_type="inferred", excluded_ancestor_roots=()))
+    rows = floor_report([one_node_motif("C")], GenContext(h, load_config(CFG_PATH), pol))
+    by = {r["parent"]: r for r in rows}
+    assert {p: r["decision"] for p, r in by.items()} == {
+        "P": "allowed", "X": "semantic_tag_changed", "Z": "inactive_parent"}
+    assert all(r["anchors"] == "" for r in rows)
+    assert all(by[p]["decision"] == pol.check_lift("C", p).reason or pol.check_lift("C", p).ok for p in by)

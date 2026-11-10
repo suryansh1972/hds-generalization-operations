@@ -11,6 +11,7 @@ from semgen.model import Motif
 from semgen.motif_io import MotifError, load_motifs
 from semgen.operators.base import GenContext
 from semgen.operators.concept_lift import concept_lift
+from semgen.snomed import FsnError
 from semgen.sources import REPO_ROOT, SourceError
 
 COLUMNS = ("motif_id", "node", "code", "fsn", "decision", "parent", "parent_fsn", "anchors",
@@ -56,12 +57,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--config", type=Path, default=REPO_ROOT / "config" / "generalization.yaml")
     ap.add_argument("--rf2", type=Path, default=None)
     ap.add_argument("--phecodex", type=Path, default=None)
+    ap.add_argument("--floor-policy", choices=("snomed_boundary", "phecodex"), default=None,
+                    help="override floor_policy.mode from the config")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args(argv)
     try:
-        ctx = build_context(args.config, args.rf2, args.phecodex)
+        ctx = build_context(args.config, args.rf2, args.phecodex, args.floor_policy)
         text = rows_to_tsv(floor_report(load_motifs(args.motifs, ctx.hierarchy), ctx))
-    except (SourceError, FileNotFoundError, ConfigError, MotifError) as e:
+    except (SourceError, FileNotFoundError, ConfigError, MotifError, FsnError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     if args.out:

@@ -1,6 +1,6 @@
 import pytest
 
-from semgen.snomed import FsnError, load_rf2
+from semgen.snomed import FsnError, Hierarchy, load_rf2
 from tests.conftest import *  # noqa: F401,F403  (constants)
 
 FIX = str(__import__("pathlib").Path(__file__).resolve().parent / "fixtures" / "rf2")
@@ -105,3 +105,42 @@ def test_descendants_pickle_roundtrip(fake_h):
 @pytest.mark.snomed
 def test_real_descendants_or_self(real_h):
     assert len(real_h.descendants_or_self("254637007")) == 36
+
+
+def test_non_isa_row_ignored(tmp_path):
+    assert load_rf2(FIX, cache_dir=tmp_path).parents("C") == {"B"}
+
+
+def test_parents_and_children_are_opposite_directions(fake_h):
+    assert MAL_THORAX in fake_h.parents(BRCA) and BRCA in fake_h.children(MAL_THORAX)
+    assert fake_h.children(BRCA) == frozenset() and BRCA not in fake_h.parents(MAL_THORAX)
+
+
+def test_descendants_is_strict(fake_h):
+    assert DM not in fake_h.descendants(DM) and fake_h.descendants(DM) == {T1DM, T2DM}
+
+
+def test_descendant_count_diamond_counts_once():
+    h = Hierarchy.from_maps({"L": {"A", "B"}, "A": {"T"}, "B": {"T"}, "T": set()}, {}, {"L", "A", "B", "T"})
+    assert h.descendant_count("T") == 3 and h.descendant_count("A") == 1
+
+
+def test_descendant_count_ignores_inactive():
+    h = Hierarchy.from_maps({"X": {"T"}, "Y": {"T"}, "T": set()}, {}, {"X", "T"})
+    assert h.descendant_count("T") == 1
+
+
+def test_semantic_tag():
+    h = Hierarchy.from_maps({}, {"A": "Foo (bar baz)", "B": "No tag"}, {"A", "B"})
+    assert h.semantic_tag("A") == "bar baz" and h.semantic_tag("B") is None and h.semantic_tag("zzz") is None
+
+
+def test_old_cache_is_rebuilt(tmp_path, monkeypatch):
+    load_rf2(FIX, cache_dir=tmp_path)
+    monkeypatch.setattr("semgen.snomed.CACHE_VERSION", "test-other")
+    load_rf2(FIX, cache_dir=tmp_path)
+    assert len(list(tmp_path.glob("*.pkl"))) == 2
+
+
+def test_characteristic_type_recorded(tmp_path):
+    assert load_rf2(FIX, cache_dir=tmp_path).characteristic_type == "inferred"

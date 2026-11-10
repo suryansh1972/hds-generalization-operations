@@ -227,3 +227,10 @@ def test_guard_rejects_inactive_target_on_finding(fake_h, ctx):
     m = m.replace_node(m.node("n1").model_copy(update={"type": "Finding"}))
     with pytest.raises(PolicyViolation, match="inactive_target"):
         guard(m, _recode(m, "n1", RA_OLD_PARENT), None, GenContext(fake_h, ctx.config, floors))
+
+
+def test_guard_rejects_dependent_attr_removal(ctx, fake_m1):
+    n = fake_m1.node("n2")
+    child = fake_m1.replace_node(n.model_copy(update={"attrs": {}}))
+    with pytest.raises(PolicyViolation, match="dependent_attr_removed"):
+        guard(fake_m1, child, None, ctx)
