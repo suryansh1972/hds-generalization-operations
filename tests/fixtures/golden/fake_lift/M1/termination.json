@@ -1,0 +1,38 @@
+{
+  "axes": {
+    "n1": {
+      "reached": [
+        "126926005",
+        "188361007",
+        "363346000",
+        "64572001"
+      ],
+      "status": "reached_floor",
+      "stopped_by": [
+        "top_level_concept"
+      ]
+    },
+    "n2": {
+      "reached": [],
+      "status": "policy_restricted",
+      "stopped_by": [
+        "concept_dependent_attr"
+      ]
+    },
+    "n3": {
+      "reached": [],
+      "status": "policy_restricted",
+      "stopped_by": [
+        "carries_value"
+      ]
+    }
+  },
+  "budget": null,
+  "budget_hit": [],
+  "candidates": 5,
+  "complete": true,
+  "refused": 0,
+  "state_space_estimate": 5,
+  "status": "exhausted",
+  "unexpanded_frontier": 0
+}

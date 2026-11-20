@@ -1,0 +1,89 @@
+[project]
+name = "semgen"
+version = "0.1.0"
+description = "Deterministic symbolic generalization of small clinical graph motifs over SNOMED CT"
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.10",
+    "pyyaml>=6",
+    "polars>=1.19",
+]
+
+[project.optional-dependencies]
+# HTTP API (Litestar). The core library never imports it.
+api = [
+    "litestar>=2.25,<3",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+semgen = "semgen.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6",
+    "httpx>=0.27",          # Litestar's TestClient
+    "litestar>=2.25,<3",
+    "uvicorn>=0.30",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML",
+    "build>=1.2",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/semgen"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/semgen", "tests", "README.md", "pyproject.toml", ".env.example"]
+exclude = ["tests/fixtures/golden/real_*", "tests/fixtures/golden/head/real_*", "data", "runs"]
+
+[tool.pytest.ini_options]
+markers = [
+    "snomed: needs a licensed SNOMED CT RF2 release (SEMGEN_RF2_DIR); skipped otherwise",
+    "api: exercises the Litestar HTTP API (skipped when litestar is not installed)",
+]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# Pyflakes, import order, pyupgrade and a few bug-prone patterns. The research code keeps its compact style, so
+# pycodestyle layout rules and `ruff format` are not enforced.
+select = ["F", "I", "UP", "B006", "B008", "B904", "E9"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B", "F811", "F403", "F405"]  # fixtures re-exported by star import
+
+[tool.ruff.lint.isort]
+known-first-party = ["semgen", "tests"]
+
+[tool.mypy]
+python_version = "3.12"
+# CI gates the application layer (engine, settings, config, context, interfaces, export, CLI, API). The research
+# modules still have Optional-narrowing findings (see README "Known limitations"); run `mypy src/semgen` to see them.
+files = ["src/semgen/engine.py", "src/semgen/settings.py", "src/semgen/config.py", "src/semgen/context.py",
+         "src/semgen/interfaces.py", "src/semgen/export.py", "src/semgen/cli.py", "src/semgen/api"]
+follow_imports = "silent"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = false

@@ -1,0 +1,31 @@
+# semgen generalization config (packaged default).
+# Every value in this file is DRAFT — not clinically approved.
+# Concept lift has no configuration: parents, boundaries and floors are derived from the SNOMED CT release
+# (semgen.lift). Only the release location is technical input (--rf2 / SEMGEN_RF2_DIR).
+# Relative paths below are resolved against the directory of this file.
+status: "DRAFT — not clinically approved"
+
+# Attribute definitions (design §5.3): which attributes describe the patient and which depend on the
+# node's concept. The file is pinned by sha256 and verified at load.
+attribute_definitions:
+  path: attribute_definitions.yaml
+  sha256: "569342e730807649cb1e278880c26db499a07c8a6e62a212eb0136b3b9a08826"
+
+# Mayo reference-range database (design §7.1): evidence for normative bucketing. It is external data and is never
+# shipped: point SEMGEN_MAYO_DB (or an optional `path:` here) at your copy. A missing file means bucketing blocks
+# with `mayo_unavailable`; a sha256 mismatch is a ConfigError. The reviewed test map (SEMGEN_MAYO_TEST_MAP or
+# `test_map:`; columns system, code, mnemonic, analyte, specimen, page_ref, reviewed_by) is optional: while it is
+# absent every Mayo lookup blocks with `no_test_mapping`.
+mayo:
+  sha256: "3edbad893eaca3825a3f161cf7c0b60df4026ff17f32ebf14d3c3a7fa4b4a107"
+
+protected_roles: [patient, anchor]
+
+negation_policy:
+  allow_drop_absent: false
+
+# UCUM essence (design §7.3): validates A1 unit strings (an invalid unit, or no essence, blocks A1; units must
+# also be equal). External data: point SEMGEN_UCUM_ESSENCE (or an optional `path:` here) at ucum-essence.xml
+# (essence version 1.9, as extracted from the org.fhir ucum-1.0.9 jar).
+ucum:
+  sha256: "abcf984e2abd35ad10cfc356990ca81afc51f92c24536edf54ea83601a5afffd"

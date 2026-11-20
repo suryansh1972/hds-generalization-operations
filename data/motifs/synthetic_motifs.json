@@ -1,0 +1,73 @@
+{
+ "_comment": "SYNTHETIC development fixtures — not BioPathNet output; values invented; DRAFT",
+ "motifs": [
+  {"motif_id": "M1", "anchor": "n1",
+   "nodes": [
+    {"id": "P",  "type": "Patient", "role": "patient"},
+    {"id": "n1", "type": "Disorder",   "label": "Malignant neoplasm of breast (disorder)", "code": null, "polarity": "present", "role": "anchor",
+     "attrs": {"age_at_dx": {"interval": [67, 67], "unit": "a"}}},
+    {"id": "n2", "type": "Substance",  "label": "Doxorubicin (substance)", "code": null, "polarity": "present", "role": "exposure",
+     "attrs": {"cumulative_dose": {"interval": [360, 360], "unit": "mg/m2"}}},
+    {"id": "n3", "type": "Observable", "label": "Left ventricular ejection fraction (observable entity)", "code": null, "polarity": "present", "role": "outcome",
+     "value": {"interval": [38, 38], "unit": "%"}},
+    {"id": "n4", "type": "Gene",    "label": "TOP2B", "code": "ENSG00000077097", "polarity": "present", "role": "context"},
+    {"id": "n5", "type": "Pathway", "label": "DNA topoisomerase II pathway", "code": "REACT:R-HSA-PLACEHOLDER-1", "polarity": "present", "role": "context"}],
+   "edges": [
+    {"s": "P",  "t": "n1", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n2", "rel": "administered_drug", "prov": "asserted"},
+    {"s": "P",  "t": "n3", "rel": "has_measurement",   "prov": "asserted"},
+    {"s": "n2", "t": "n3", "rel": "followed_by",       "prov": "asserted", "time": {"window": [23, 23], "unit": "d"}},
+    {"s": "n2", "t": "n4", "rel": "targets",           "prov": "context", "bpn_score": 0.81},
+    {"s": "n4", "t": "n5", "rel": "participates_in",   "prov": "context", "bpn_score": 0.64}]},
+
+  {"motif_id": "M2", "anchor": "n1",
+   "nodes": [
+    {"id": "P",  "type": "Patient", "role": "patient"},
+    {"id": "n1", "type": "Disorder",   "label": "Diabetes mellitus type 2 (disorder)", "code": null, "polarity": "present", "role": "anchor"},
+    {"id": "n2", "type": "Disorder",   "label": "Diabetes mellitus type 1 (disorder)", "code": null, "polarity": "absent",  "role": "modifier"},
+    {"id": "n3", "type": "Substance",  "label": "Metformin (substance)", "code": null, "polarity": "present", "role": "exposure"},
+    {"id": "n4", "type": "Disorder",   "label": "Chronic kidney disease (disorder)", "code": null, "polarity": "present", "role": "modifier"},
+    {"id": "n5", "type": "Observable", "label": "Glomerular filtration rate (observable entity)", "code": null, "polarity": "present", "role": "outcome",
+     "value": {"interval": [42, 42], "unit": "mL/min/1.73m2"}},
+    {"id": "n6", "type": "Disorder",   "label": "Lactic acidosis", "code": "MESH:PLACEHOLDER-LACTIC-ACIDOSIS", "polarity": "present", "role": "context"}],
+   "edges": [
+    {"s": "P",  "t": "n1", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n2", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n3", "rel": "administered_drug", "prov": "asserted"},
+    {"s": "P",  "t": "n4", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n5", "rel": "has_measurement",   "prov": "asserted"},
+    {"s": "n3", "t": "n5", "rel": "followed_by",       "prov": "asserted", "time": {"window": [180, 180], "unit": "d"}},
+    {"s": "n3", "t": "n6", "rel": "associated_with",   "prov": "context", "bpn_score": 0.72}]},
+
+  {"motif_id": "M3", "anchor": "n1",
+   "nodes": [
+    {"id": "P",  "type": "Patient", "role": "patient"},
+    {"id": "n1", "type": "Disorder",  "label": "Non-small cell lung cancer with mutation in epidermal growth factor receptor (disorder)", "code": null, "polarity": "present", "role": "anchor"},
+    {"id": "n3", "type": "Substance", "label": "Osimertinib (substance)", "code": null, "polarity": "present", "role": "exposure"},
+    {"id": "n4", "type": "Disorder",  "label": "Interstitial lung disease (disorder)", "code": null, "polarity": "present", "role": "outcome"},
+    {"id": "n5", "type": "Gene",      "label": "EGFR", "code": "ENSG00000146648", "polarity": "present", "role": "context"},
+    {"id": "n6", "type": "Pathway",   "label": "ErbB signaling pathway", "code": "REACT:R-HSA-PLACEHOLDER-2", "polarity": "present", "role": "context"}],
+   "edges": [
+    {"s": "P",  "t": "n1", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n3", "rel": "administered_drug", "prov": "asserted"},
+    {"s": "P",  "t": "n4", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "n3", "t": "n4", "rel": "followed_by",       "prov": "asserted", "time": {"window": [41, 41], "unit": "d"}},
+    {"s": "n3", "t": "n5", "rel": "targets",           "prov": "context", "bpn_score": 0.88},
+    {"s": "n5", "t": "n6", "rel": "participates_in",   "prov": "context", "bpn_score": 0.70}]},
+
+  {"motif_id": "M4", "anchor": "n1",
+   "nodes": [
+    {"id": "P",  "type": "Patient", "role": "patient"},
+    {"id": "n1", "type": "Disorder",   "label": "Rheumatoid arthritis (disorder)", "code": null, "polarity": "present", "role": "anchor"},
+    {"id": "n2", "type": "Substance",  "label": "Methotrexate (substance)", "code": null, "polarity": "present", "role": "exposure"},
+    {"id": "n3", "type": "Observable", "label": "Alanine transaminase in serum (observable entity)", "code": null, "polarity": "present", "role": "outcome",
+     "value": {"interval": [3.6, 3.6], "unit": "xULN"}},
+    {"id": "n4", "type": "Disorder",   "label": "Drug-induced liver injury", "code": "MESH:PLACEHOLDER-DILI", "polarity": "present", "role": "context"}],
+   "edges": [
+    {"s": "P",  "t": "n1", "rel": "has_condition",     "prov": "asserted"},
+    {"s": "P",  "t": "n2", "rel": "administered_drug", "prov": "asserted"},
+    {"s": "P",  "t": "n3", "rel": "has_measurement",   "prov": "asserted"},
+    {"s": "n2", "t": "n3", "rel": "followed_by",       "prov": "asserted", "time": {"window": [90, 90], "unit": "d"}},
+    {"s": "n2", "t": "n4", "rel": "associated_with",   "prov": "context", "bpn_score": 0.77}]}
+ ]
+}

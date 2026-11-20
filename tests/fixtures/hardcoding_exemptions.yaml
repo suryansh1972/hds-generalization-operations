@@ -1,0 +1,18 @@
+# Exemptions for tests/test_no_hardcoding.py (design §10). Each entry: the exact value, the file it occurs in, and
+# why it is not a clinical constant. An entry whose value no longer occurs in its file fails the test (stale).
+exemptions:
+  - value: "138875005"
+    file: src/semgen/snomed.py
+    reason: "RF2 format constant: the SNOMED CT root concept id (depth is measured to it)"
+  - value: "116680003"
+    file: src/semgen/snomed.py
+    reason: "RF2 format constant: the IS-A relationship type id"
+  - value: "900000000000011006"
+    file: src/semgen/snomed.py
+    reason: "RF2 format constant: the inferred characteristic type id"
+  - value: "900000000000003001"
+    file: src/semgen/snomed.py
+    reason: "RF2 format constant: the fully specified name description type id"
+  - value: "900000000000074008"
+    file: src/semgen/concept_model.py
+    reason: "RF2 format constant: the primitive definitionStatusId (definition status, not a clinical concept)"
