@@ -1,4 +1,3 @@
-import copy
 import json
 
 import pytest
@@ -135,3 +134,156 @@ def test_bad_window_rejected(window, unit, msg):
 def test_window_zero_to_open_allowed():
     w = parse_motif(_with_window([0, None]), None).edge("n3", "n1").window
     assert (w.lo, w.hi) == (0, None)
+
+
+# --- Task 1: bundles and new node/edge keys ---
+from semgen.bundle import MotifBundle  # noqa: E402
+from semgen.canonical import motif_hash  # noqa: E402
+from semgen.motif_io import load_bundles, parse_bundle  # noqa: E402
+
+
+def _named(mid):
+    d = base(); d["motif_id"] = mid
+    return d
+
+
+def _bundle(*motifs, **kw):
+    return {"bundle_id": "B1", "semantics": "all", "anchor_motif": "M1", "motifs": list(motifs)} | kw
+
+
+def test_bundle_namespaces_clashing_ids():
+    m1, m2 = _named("M1"), _named("M2")
+    m2["nodes"].append({"id": "n3", "type": "Substance", "code": "3", "polarity": "present", "role": "exposure"})
+    m2["edges"] += [{"s": "P", "t": "n3", "rel": "administered_drug", "prov": "asserted"},
+                    {"s": "n3", "t": "n1", "rel": "followed_by", "prov": "asserted"}]
+    b = parse_bundle(_bundle(m1, m2), None)
+    assert [p.part_id for p in b.parts] == ["M1", "M2"] and b.anchor_part == "M1" and b.semantics == "all"
+    p1, p2 = b.part("M1").motif, b.part("M2").motif
+    assert p1.node_ids == {"P", "M1.n1", "M1.n2"} and p2.node_ids == {"P", "M2.n1", "M2.n2", "M2.n3"}
+    assert p1.anchor == "M1.n1" and p2.anchor == "M2.n1"
+    assert {e.key for e in p2.edges} == {("P", "M2.n1"), ("P", "M2.n2"), ("P", "M2.n3"), ("M2.n3", "M2.n1")}
+    assert p2.edge("M2.n3", "M2.n1").rel == "followed_by"
+    non_p = [i for p in b.parts for i in p.motif.node_ids if i != "P"]
+    assert len(non_p) == len(set(non_p))
+    assert p1.node("M1.n2").polarity == "absent" and p1.edge("P", "M1.n2") is not None
+
+
+def test_bundle_of_one_keeps_ids_and_hash():
+    b = parse_bundle({"bundle_id": "B", "motifs": [_named("M1")]}, None)
+    m = parse_motif(_named("M1"), None)
+    assert b.is_single and b.semantics == "all" and b.anchor_part == "M1"
+    assert b.single_motif == m and motif_hash(b.single_motif) == motif_hash(m)
+
+
+def test_bundle_requires_anchor_motif_when_multi():
+    raw = _bundle(_named("M1"), _named("M2")); raw.pop("anchor_motif")
+    with pytest.raises(MotifError, match="anchor_motif"): parse_bundle(raw, None)
+    with pytest.raises(MotifError, match="anchor_motif"):
+        parse_bundle(_bundle(_named("M1"), _named("M2"), anchor_motif="M9"), None)
+
+
+def test_bundle_semantics_missing_is_none_and_bad_value_rejected():
+    raw = _bundle(_named("M1"), _named("M2")); raw.pop("semantics")
+    assert parse_bundle(raw, None).semantics is None
+    with pytest.raises(MotifError, match="semantics"):
+        parse_bundle(_bundle(_named("M1"), _named("M2"), semantics="both"), None)
+
+
+def test_agg_prefix_is_no_longer_reserved():
+    """Aggregate parts were removed with motif aggregation, so ``agg:`` is an ordinary motif id."""
+    b = parse_bundle(_bundle(_named("M1"), _named('agg:["x"]')), None)
+    assert {p.part_id for p in b.parts} == {"M1", 'agg:["x"]'}
+
+
+def test_bundle_rejects_duplicate_motif_ids():
+    with pytest.raises(MotifError, match="duplicate"):
+        parse_bundle(_bundle(_named("M1"), _named("M1")), None)
+
+
+def test_bundle_rejects_mismatched_patient_nodes():
+    m2 = _named("M2"); m2["nodes"][0]["label"] = "someone else"
+    with pytest.raises(MotifError, match="patient node"):
+        parse_bundle(_bundle(_named("M1"), m2), None)
+
+
+def test_bundle_subject_parsed():
+    b = parse_bundle(_bundle(_named("M1"), _named("M2"), subject={"sex": "F", "age_days": 21000}), None)
+    assert (b.subject.sex, b.subject.age_days) == ("F", 21000)
+    with pytest.raises(MotifError, match="subject"):
+        parse_bundle(_bundle(_named("M1"), _named("M2"), subject={"sex": "F", "age": 1}), None)
+
+
+@pytest.mark.parametrize("bad", ["2026-13-01", "2026-1-1", "2026-01-01T00:00"])
+@pytest.mark.parametrize("where", ["node", "edge"])
+def test_dates_must_be_iso_dates(bad, where):
+    d = base()
+    (d["nodes"][1] if where == "node" else d["edges"][0])["dates"] = {"onset": bad}
+    with pytest.raises(MotifError, match=r"dates\['onset'\]") as ei:
+        parse_motif(d, None)
+    assert bad in str(ei.value)
+
+
+def test_dates_parse_on_nodes_and_edges():
+    d = base(); d["nodes"][1]["dates"] = {"onset": "2026-01-02"}; d["edges"][0]["dates"] = {"recorded": "2026-01-03"}
+    m = parse_motif(d, None)
+    assert m.node("n1").dates == {"onset": "2026-01-02"} and m.edge("P", "n1").dates == {"recorded": "2026-01-03"}
+
+
+def test_test_identity_and_reference_range_parse():
+    d = base()
+    t = {"system": "http://loinc.org", "code": "1742-6", "specimen": "serum"}
+    d["nodes"][1].update(test=t, reference_range={
+        "interval": [7, 56], "unit": "U/L", "kind": "reference", "test": t,
+        "applies_to": {"sex": "M", "age_min_days": 6570}, "source": "lab-report", "source_ref": "doc-9#p2"})
+    n = parse_motif(d, None).node("n1")
+    assert (n.test.system, n.test.code, n.test.method, n.test.specimen) == ("http://loinc.org", "1742-6", None, "serum")
+    rr = n.reference_range
+    assert (rr.interval.lo, rr.interval.hi, rr.interval.lo_closed, rr.interval.hi_closed, rr.interval.unit) == \
+        (7, 56, True, True, "U/L")
+    assert rr.kind == "reference" and rr.test == n.test and (rr.source, rr.source_ref) == ("lab-report", "doc-9#p2")
+    assert (rr.applies_to.sex, rr.applies_to.age_min_days, rr.applies_to.age_max_days) == ("M", 6570, None)
+
+
+@pytest.mark.parametrize("mutate,msg", [
+    (lambda n: n.update(test={"system": "s"}), "test"),
+    (lambda n: n.update(test={"system": "s", "code": "c", "bogus": 1}), "bogus"),
+    (lambda n: n.update(reference_range={"interval": [1, 2], "unit": "U/L", "kind": "reference",
+                                         "test": {"system": "s", "code": "c"}, "source": "x"}), "reference_range"),
+])
+def test_bad_test_or_reference_range_rejected(mutate, msg):
+    d = base(); mutate(d["nodes"][1])
+    with pytest.raises(MotifError, match=msg): parse_motif(d, None)
+
+
+def test_absent_node_with_dates_rejected():
+    d = base(); d["nodes"][2]["dates"] = {"onset": "2026-01-02"}
+    with pytest.raises(MotifError, match="absent"): parse_motif(d, None)
+
+
+def test_single_motif_file_loads_as_bundles_of_one(tmp_path):
+    for payload in ([_named("M1"), _named("M2")], {"_comment": "x", "motifs": [_named("M1"), _named("M2")]}):
+        p = tmp_path / "m.json"; p.write_text(json.dumps(payload))
+        bs = load_bundles(p, None)
+        assert [b.bundle_id for b in bs] == ["M1", "M2"] and all(b.is_single for b in bs)
+        assert [b.single_motif for b in bs] == load_motifs(p, None)
+        assert bs[0] == MotifBundle.of(load_motifs(p, None)[0])
+
+
+def test_bundle_file_loads(tmp_path):
+    p = tmp_path / "b.json"
+    p.write_text(json.dumps({"bundles": [_bundle(_named("M1"), _named("M2")),
+                                         {"bundle_id": "B2", "motifs": [_named("M3")]}]}))
+    a, b = load_bundles(p, None)
+    assert (a.bundle_id, len(a.parts), b.bundle_id, b.is_single) == ("B1", 2, "B2", True)
+    p.write_text(json.dumps({"bundles": [_bundle(_named("M1")), _bundle(_named("M1"))]}))
+    with pytest.raises(MotifError, match="duplicate bundle"): load_bundles(p, None)
+
+
+def test_ids_differing_only_by_case_are_duplicates(tmp_path):
+    """Ids name output directories: "b1" and "B1" would share one on a case-insensitive filesystem."""
+    p = tmp_path / "b.json"
+    second = _bundle(_named("M2"), bundle_id="b1", anchor_motif="M2")
+    p.write_text(json.dumps({"bundles": [_bundle(_named("M1")), second]}))
+    with pytest.raises(MotifError, match=r"duplicate bundle id\(s\) \['B1', 'b1'\]"): load_bundles(p, None)
+    p.write_text(json.dumps([_named("M1"), _named("m1")]))   # motif-list file: bundle id = motif id
+    with pytest.raises(MotifError, match=r"\['M1', 'm1'\]"): load_bundles(p, None)

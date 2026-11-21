@@ -6,24 +6,28 @@ import pytest
 
 import semgen.lattice as L
 from semgen.config import load_config
-from semgen.floors import FloorDecision
-from semgen.lattice import GeneralizationOrderError, enumerate_lattice
+from semgen.lattice import Budget, GeneralizationOrderError, enumerate_lattice
+from semgen.lift import FloorDecision
+from semgen.motif_io import parse_motif
 from semgen.operators.base import GenContext
 from semgen.operators.concept_lift import concept_lift, is_liftable
 from semgen.order import check_order
-from semgen.motif_io import parse_motif
+from semgen.settings import default_config_path  # noqa: E402
 from semgen.snomed import ROOT_ID, Hierarchy
 from tests.support.hierarchy_graph import _ISA, AllowExcept, graph_hierarchy, one_disorder_motif
+from tests.support.relevance import relaxed
 
-CFG = Path(__file__).resolve().parent.parent / "config" / "generalization.yaml"
+CFG = default_config_path()
 
 
+# Rev 4: deletion moves need a relaxable relevance decision; these tests are about what deletions do, so they
+# run with every candidate relaxable (tests/support/relevance.py). The gate itself: tests/test_relevance.py.
 def _ctx(blocked=()):
-    return GenContext(graph_hierarchy(), load_config(CFG), AllowExcept(set(blocked)))
+    return relaxed(GenContext(graph_hierarchy(), load_config(CFG), AllowExcept(set(blocked))))
 
 
 def _lat(depth, blocked=()):
-    return enumerate_lattice(one_disorder_motif("SPEC"), _ctx(blocked), max_depth=depth, climb=False)
+    return enumerate_lattice(one_disorder_motif("SPEC"), _ctx(blocked), Budget(max_depth=depth), climb=False)
 
 
 def _codes(lat, depth=None):
@@ -69,7 +73,7 @@ def test_blocked_parent_not_bypassed():
     lat = _lat(6, {"BLOCKED"})
     assert "ABOVE_BLOCKED" not in _codes(lat)
     assert "BLOCKED" not in _codes(lat)
-    assert any(b.reason == "outside_floor" for _, b in lat.blocked)
+    assert any(b.reason == "defining_attribute_dropped" for _, b in lat.blocked)
 
 
 def test_inactive_parent_blocked_not_lifted():
@@ -110,11 +114,12 @@ def _dep_motif():
 
 
 def _dctx():
-    return GenContext(_dep_hierarchy(), load_config(CFG), AllowExcept(set()))
+    h = _dep_hierarchy()
+    return relaxed(GenContext(h, load_config(CFG), AllowExcept(set(), h)))
 
 
 def _dlat(depth):
-    return enumerate_lattice(_dep_motif(), _dctx(), max_depth=depth)
+    return enumerate_lattice(_dep_motif(), _dctx(), Budget(max_depth=depth))
 
 
 def test_value_bearing_observable_not_lifted():
@@ -137,8 +142,9 @@ def test_prohibited_removal_never_enables_lift():
 
 
 def _value_removal_then_lift(lat):
+    # Task 2: the value is removed by attribute_deletion (was attribute_removal, which it replaces).
     for e1 in lat.edges:
-        if any(c.op == "attribute_removal" and c.target == "n3" and c.field == "value" for c in e1.changes):
+        if any(c.op == "attribute_deletion" and c.target == "n3" and c.field == "value" for c in e1.changes):
             for e2 in lat.edges:
                 if e2.parent == e1.child and any(c.op == "concept_lift" and c.target == "n3" for c in e2.changes):
                     return e1, e2
@@ -161,8 +167,8 @@ def test_post_removal_transitions_are_recorded_and_proven():
 
 # ---- per-node climb ----
 
-def _clat(depth, code="SPEC", blocked=(), **kw):
-    return enumerate_lattice(one_disorder_motif(code), _ctx(blocked), max_depth=depth, **kw)
+def _clat(depth, code="SPEC", blocked=(), max_states=None, **kw):
+    return enumerate_lattice(one_disorder_motif(code), _ctx(blocked), Budget(max_depth=depth, max_states=max_states), **kw)
 
 
 def _cand(lat, code):
@@ -170,8 +176,11 @@ def _cand(lat, code):
 
 
 def _fail_on(monkeypatch, name, code, when):
-    """Patch L.<name> to fail on a child coded ``code`` when ``when(parent)`` holds; otherwise delegate."""
-    real = getattr(L, name)
+    """Patch <name> where the lattice resolves it (neighbors module; also the search module for the root proof) to
+    fail on a child coded ``code`` when ``when(parent)`` holds; otherwise delegate."""
+    import semgen.lattice.moves as N
+    import semgen.lattice.search as S
+    real = getattr(N, name)
 
     def patched(parent, child, *rest):
         if "n1" in child.node_ids and child.node("n1").code == code and when(parent):
@@ -179,13 +188,16 @@ def _fail_on(monkeypatch, name, code, when):
                 raise L.PolicyViolation("forced")
             return L.OrderResult(False, "forced", "n1")
         return real(parent, child, *rest)
-    monkeypatch.setattr(L, name, patched)
+    monkeypatch.setattr(N, name, patched)
+    if hasattr(S, name):
+        monkeypatch.setattr(S, name, patched)
 
 
 def test_climb_reaches_past_max_depth():
+    """Rewritten (Task 1): was lat.status == "depth_limited"; now budget_limited by max_depth, same budget value."""
     lat = _clat(2)
     c5 = _cand(lat, "C5")
-    assert c5.origin == "axis" and c5.depth == 7 and lat.status == "depth_limited"
+    assert c5.origin == "axis" and c5.depth == 7 and lat.status == "budget_limited" and lat.budget_hit == ("max_depth",)
 
 
 def test_climb_is_one_step_edges():
@@ -211,19 +223,22 @@ def test_climb_does_not_bypass_blocked():
     lat = _clat(1, blocked={"BLOCKED"})
     ax = lat.axes["n1"]
     assert "ABOVE_BLOCKED" not in ax.reached and "BLOCKED" not in ax.reached
-    assert "ABOVE_BLOCKED" not in _codes(lat) and "outside_floor" in ax.stopped_by
+    assert "ABOVE_BLOCKED" not in _codes(lat) and "defining_attribute_dropped" in ax.stopped_by
 
 
 def test_climb_stops_at_floor_status():
     ax = _clat(1, code="G", blocked={"C3"}).axes["n1"]  # G has one route up; from SPEC, BLOCKED reaches the root
     assert ax.status == "reached_floor" and "C4" not in ax.reached
-    assert ax.reached == ("C1", "C2") and ax.stopped_by == ("outside_floor",)
+    assert ax.reached == ("C1", "C2") and ax.stopped_by == ("defining_attribute_dropped",)
 
 
-def test_climb_to_top_status():
+def test_climb_stops_below_top_level_not_at_root():
+    """Rewritten (SNOMED-only lift): the climb used to reach ROOT; now it stops at C5, because its parent TOP is a
+    top-level concept that names the MRCM domain (derived from the graph, not supplied)."""
     ax = _clat(1).axes["n1"]
-    assert ax.status == "reached_hierarchy_top" and ROOT_ID in ax.reached
-    assert ax.stopped_by == ("inactive_parent", "no_parent")
+    assert ax.status == "reached_floor" and "C5" in ax.reached
+    assert ROOT_ID not in ax.reached and "TOP" not in ax.reached
+    assert ax.stopped_by == ("inactive_parent", "top_level_concept")
 
 
 def test_value_node_is_policy_restricted():
@@ -240,11 +255,11 @@ def test_dependent_attr_node_is_policy_restricted():
 
 def test_restriction_outranks_top_and_boundary():
     class Unmapped(AllowExcept):
-        def check_lift(self, child, parent):
+        def check_lift(self, child, parent, **_context):
             return FloorDecision(False, "unmapped", {}) if child == "G" else super().check_lift(child, parent)
-    ctx = GenContext(graph_hierarchy(), load_config(CFG), Unmapped({"C1"}))
-    ax = enumerate_lattice(one_disorder_motif("SPEC"), ctx, max_depth=1).axes["n1"]
-    assert {"unmapped", "no_parent", "inactive_parent"} <= set(ax.stopped_by)
+    ctx = relaxed(GenContext(graph_hierarchy(), load_config(CFG), Unmapped({"C1"})))
+    ax = enumerate_lattice(one_disorder_motif("SPEC"), ctx, Budget(max_depth=1)).axes["n1"]
+    assert {"unmapped", "inactive_parent"} <= set(ax.stopped_by)
     assert ax.status == "policy_restricted"
 
 
@@ -254,7 +269,7 @@ def test_unknown_concept_is_policy_restricted():
 
 
 def test_climb_skips_absent_and_context_nodes(ctx, fake_m2):
-    lat = enumerate_lattice(fake_m2, ctx, 0)
+    lat = enumerate_lattice(fake_m2, ctx, Budget(max_depth=0))
     assert fake_m2.node("n2").polarity == "absent" and fake_m2.node("n6").role == "context"
     assert list(lat.axes) == ["n1", "n3", "n4", "n5"]
 
@@ -273,7 +288,7 @@ def test_axis_candidates_pass_root_proof(monkeypatch):
     root = one_disorder_motif("SPEC")
     _fail_on(monkeypatch, "check_order", "C5", lambda parent: parent == root)
     with pytest.raises(GeneralizationOrderError, match="root proof failed: forced at n1"):
-        enumerate_lattice(root, _ctx(), max_depth=2)
+        enumerate_lattice(root, _ctx(), Budget(max_depth=2))
 
 
 def test_climb_step_order_failure_raises(monkeypatch):
@@ -298,7 +313,7 @@ def test_climb_records_blocks_on_climbed_motifs():
     lat = _clat(1, blocked={"C3"})
     c2 = _cand(lat, "C2")
     assert c2.origin == "axis"
-    assert [b.reason for h, b in lat.blocked if h == c2.hash] == ["outside_floor"]
+    assert [b.reason for h, b in lat.blocked if h == c2.hash] == ["defining_attribute_dropped"]
     assert [b.reason for h, b in _clat(1, blocked={"C3"}, climb=False).blocked if h == c2.hash] == []
 
 
@@ -318,8 +333,8 @@ def test_climb_blocks_filtered_to_each_nodes_target():
 
 @pytest.mark.parametrize("depth,budget", [(0, 2000), (2, 2000), (30, 2000), (30, 3), (30, 1)])
 def test_climb_keeps_status_and_lattice_candidates(depth, budget):
-    on = _clat(depth, max_candidates=budget)
-    off = _clat(depth, max_candidates=budget, climb=False)
+    on = _clat(depth, max_states=budget)
+    off = _clat(depth, max_states=budget, climb=False)
     assert (on.status, on.unexpanded) == (off.status, off.unexpanded) and on.root == off.root
     assert off.axes == {} and all(c.origin == "lattice" for c in off.candidates.values())
     assert all(on.candidates[h] == c for h, c in off.candidates.items())  # depth and origin are kept
@@ -328,8 +343,10 @@ def test_climb_keeps_status_and_lattice_candidates(depth, budget):
 
 
 def test_climb_ignores_candidate_budget():
-    lat = _clat(30, max_candidates=1)
-    assert lat.status == "candidate_limited" and "C5" in _codes(lat) and len(lat.candidates) > 1
+    """Rewritten (Task 1): was lat.status == "candidate_limited"; now budget_limited by max_states, same budget."""
+    lat = _clat(30, max_states=1)
+    assert lat.status == "budget_limited" and lat.budget_hit == ("max_states",)
+    assert "C5" in _codes(lat) and len(lat.candidates) > 1
 
 
 def test_climb_edges_unique_and_depths_minimal():
@@ -348,7 +365,7 @@ def test_is_liftable_matches_operator_skip():
     assert not is_liftable(n.model_copy(update={"polarity": "absent"}))
     assert not is_liftable(n.model_copy(update={"role": "context"}))
     assert not is_liftable(n.model_copy(update={"code": None}))
-    assert not is_liftable(n.model_copy(update={"type": "Gene"}))
+    assert is_liftable(n.model_copy(update={"type": "Gene"}))   # the motif type is not ontology evidence
 
 
 def _top_motif(kind):
@@ -366,7 +383,7 @@ def _top_motif(kind):
 
 @pytest.mark.parametrize("kind,reason", [("value", "carries_value"), ("attr", "concept_dependent_attr")])
 def test_parentless_restricted_node_is_policy_restricted(kind, reason):
-    ax = enumerate_lattice(_top_motif(kind), _ctx(), max_depth=0).axes["n2"]
+    ax = enumerate_lattice(_top_motif(kind), _ctx(), Budget(max_depth=0)).axes["n2"]
     assert ax.status == "policy_restricted" and ax.reached == () and reason in ax.stopped_by
 
 
@@ -377,22 +394,24 @@ def test_parentless_plain_node_reaches_hierarchy_top():
 
 def test_climb_hash_collision_detected(monkeypatch):
     root = one_disorder_motif("SPEC")
-    real = L.motif_hash
-    monkeypatch.setattr(L, "motif_hash", lambda m: real(m) if m is root or m.node("n1").code in {"SPEC", "P1", "P2"} else "c" * 16)
+    import semgen.lattice.moves as N
+    real = N.motif_hash
+    monkeypatch.setattr(N, "motif_hash", lambda m: real(m) if m is root or m.node("n1").code in {"SPEC", "P1", "P2"} else "c" * 16)
     with pytest.raises(GeneralizationOrderError, match="hash collision"):
-        enumerate_lattice(root, _ctx(), max_depth=0)
+        enumerate_lattice(root, _ctx(), Budget(max_depth=0))
 
 
 def test_stage4_graph_through_rf2(tmp_path):
+    """Rewritten (Task 1): was lat.status == "depth_limited"; now budget_limited by max_depth, same budget value."""
     from semgen.snomed import FSN_TYPE, INFERRED, IS_A, load_rf2
     stated, other = "900000000000010007", "363698007"
     chain = ["G", "C1", "C2", "C3", "C4"]
-    ids = ["SPEC", "P1", "P2", "BLK", "ABOVE_BLK", "KID", "X_INACT", "X_NONISA", "X_STATED", *chain, ROOT_ID]
+    ids = ["SPEC", "P1", "P2", "BLK", "ABOVE_BLK", "KID", "X_INACT", "X_NONISA", "X_STATED", *chain, "TOP", ROOT_ID]
     rows = [("SPEC", "P1", IS_A, INFERRED, 1), ("SPEC", "P2", IS_A, INFERRED, 1), ("P1", "G", IS_A, INFERRED, 1),
             ("P2", "G", IS_A, INFERRED, 1), ("P2", "BLK", IS_A, INFERRED, 1), ("BLK", "ABOVE_BLK", IS_A, INFERRED, 1),
-            ("ABOVE_BLK", ROOT_ID, IS_A, INFERRED, 1), ("KID", "SPEC", IS_A, INFERRED, 1),
+            ("ABOVE_BLK", "TOP", IS_A, INFERRED, 1), ("TOP", ROOT_ID, IS_A, INFERRED, 1), ("KID", "SPEC", IS_A, INFERRED, 1),
             ("SPEC", "X_INACT", IS_A, INFERRED, 0), ("SPEC", "X_NONISA", other, INFERRED, 1),
-            ("SPEC", "X_STATED", IS_A, stated, 1), ("C4", ROOT_ID, IS_A, INFERRED, 1),
+            ("SPEC", "X_STATED", IS_A, stated, 1), ("C4", "TOP", IS_A, INFERRED, 1),
             *[(a, b, IS_A, INFERRED, 1) for a, b in zip(chain, chain[1:])]]
     t = "\t".join
     (tmp_path / "sct2_Concept_Snapshot_INT_20990101.txt").write_text("\n".join(
@@ -408,8 +427,8 @@ def test_stage4_graph_through_rf2(tmp_path):
         + [t([str(i), "20990101", str(a), "900000000000207008", s, d, "0", ty, ch, "900000000000451002"])
            for i, (s, d, ty, ch, a) in enumerate(rows, 1)]) + "\n")
     h = load_rf2(tmp_path, cache_dir=tmp_path / "cache")
-    ctx = GenContext(h, load_config(CFG), AllowExcept({"BLK"}))
-    lat = enumerate_lattice(one_disorder_motif("SPEC"), ctx, max_depth=2)
+    ctx = GenContext(h, load_config(CFG), AllowExcept({"BLK"}, h))
+    lat = enumerate_lattice(one_disorder_motif("SPEC"), ctx, Budget(max_depth=2))
     lifts = _lifts(lat)
     assert lifts and all(ch.after in h.parents(ch.before) for _, ch in lifts)  # parents only, one step each
     codes = _codes(lat)
@@ -418,9 +437,9 @@ def test_stage4_graph_through_rf2(tmp_path):
     g = next(hh for hh, c in lat.candidates.items() if c.motif.node("n1").code == "G")
     inc = [e for e in lat.edges if e.child == g]
     assert {ch.before for e in inc for ch in e.changes} == {"P1", "P2"} and all(len(e.changes) == 1 for e in inc)
-    assert any(b.reason == "outside_floor" and b.detail["parent"] == "BLK" for _, b in lat.blocked)
-    assert lat.status == "depth_limited" and lat.status != "exhausted"
+    assert any(b.reason == "defining_attribute_dropped" and b.detail["parent"] == "BLK" for _, b in lat.blocked)
+    assert lat.status == "budget_limited" and lat.budget_hit == ("max_depth",)
     ax = lat.axes["n1"]
-    assert ROOT_ID in ax.reached and set(chain) <= set(ax.reached) and "ABOVE_BLK" not in ax.reached
-    assert ax.status == "reached_hierarchy_top"
+    assert ROOT_ID not in ax.reached and set(chain) <= set(ax.reached) and "ABOVE_BLK" not in ax.reached
+    assert ax.status == "reached_floor" and "top_level_concept" in ax.stopped_by
     assert max(c.depth for c in lat.candidates.values()) > 2

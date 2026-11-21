@@ -1,5 +1,8 @@
-from semgen.model import Interval, Node, Edge, Motif
 import pytest
+
+from semgen.model import Edge, Interval, Motif, Node
+
+
 def iv(lo, hi, lc=True, hc=True, u="%"): return Interval(lo=lo, hi=hi, lo_closed=lc, hi_closed=hc, unit=u)
 
 def test_point_inside_half_open():
@@ -85,3 +88,92 @@ def test_model_copy_deep_works():
     n2 = n.model_copy(update={"code": "9"}, deep=True)
     assert n2.code == "9" and n2.attrs == n.attrs
     with pytest.raises(TypeError): n2.attrs["z"] = iv(1, 2)
+
+
+# --- Task 1: new fields ---
+def _obs(dates):
+    from semgen.model import Observation
+    return Observation(value=Interval.point(1, "%"), dates=dates, source_node="n1")
+
+
+def test_mapping_fields_immutable():
+    src = {"onset": "2026-01-02"}
+    built = [
+        (Node(id="a", type="T", role="r", dates=src), "dates"),
+        (Node(id="a", type="T", role="r", attrs={"x": iv(1, 2)}), "attrs"),
+        (Edge(s="P", t="a", rel="r", prov="asserted", dates=src), "dates"),
+        (_obs(src), "dates"),
+    ]
+    src_attrs = {"x": iv(1, 2)}
+    built.append((Node(id="a", type="T", role="r", attrs=src_attrs), "attrs"))
+    for obj, name in built:
+        mp = getattr(obj, name)
+        with pytest.raises(TypeError):
+            mp["new"] = mp[next(iter(mp))]
+        with pytest.raises(TypeError):
+            del mp[next(iter(mp))]
+    before = [dict(getattr(o, n)) for o, n in built]
+    src["onset"] = "1999-09-09"; src["extra"] = "2000-01-01"; src_attrs["y"] = iv(3, 4)
+    assert [dict(getattr(o, n)) for o, n in built] == before
+
+
+def test_hash_and_canonical_stable_after_source_dict_mutation():
+    from semgen.canonical import canonical_json, motif_hash
+    nd, ed = {"onset": "2026-01-02", "end": "2026-02-03"}, {"seen": "2026-03-04"}
+    def build(ndates, edates):
+        return Motif(motif_id="X", anchor="n1",
+                     nodes=(Node(id="P", type="Patient", role="patient"),
+                            Node(id="n1", type="Disorder", role="anchor", code="1", dates=ndates)),
+                     edges=(Edge(s="P", t="n1", rel="has_condition", prov="asserted", dates=edates),))
+    m = build(nd, ed)
+    h, cj = motif_hash(m), canonical_json(m)
+    nd["onset"] = "1999-01-01"; ed.clear()
+    assert (motif_hash(m), canonical_json(m)) == (h, cj)
+    other = build({"end": "2026-02-03", "onset": "2026-01-02"}, {"seen": "2026-03-04"})
+    assert (motif_hash(other), canonical_json(other)) == (h, cj)
+    assert hash(m.node("n1")) == hash(other.node("n1")) and hash(m.edges[0]) == hash(other.edges[0])
+
+
+def test_new_fields_default_and_leave_canonical_unchanged():
+    from semgen.canonical import canonical_json
+    m = _motif()
+    n = m.node("n1")
+    assert (n.dates, n.test, n.reference_range, n.observations) == ({}, None, None, ())
+    assert m.edges[0].dates == {}
+    assert canonical_json(m) == ('{"anchor":"n1","edges":[{"bpn_score":null,"prov":"asserted","rel":"has_condition",'
+                                 '"s":"P","t":"n1","window":null}],"nodes":[{"attrs":{},"code":null,"id":"P",'
+                                 '"polarity":"present","role":"patient","type":"Patient","value":null},{"attrs":{},'
+                                 '"code":"1","id":"n1","polarity":"present","role":"anchor","type":"Disorder",'
+                                 '"value":null}]}')
+
+
+def test_new_fields_enter_canonical_when_set():
+    from semgen.canonical import canonical_json
+    from semgen.model import AppliesTo, ReferenceRange, TestIdentity
+    t = TestIdentity(system="http://loinc.org", code="1742-6")
+    rr = ReferenceRange(interval=iv(0, 40, u="U/L"), kind="reference", test=t, applies_to=AppliesTo(sex="F"),
+                        source="lab", source_ref="r1")
+    m = _motif()
+    n = m.node("n1").model_copy(update={"dates": {"onset": "2026-01-02"}, "test": t, "reference_range": rr})
+    got = canonical_json(m.replace_node(n))
+    assert '"dates":{"onset":"2026-01-02"}' in got and '"test":{"code":"1742-6"' in got
+    assert '"reference_range":{"applies_to":{"age_max_days":null,"age_min_days":null,"sex":"F"}' in got
+    obs = n.model_copy(update={"test": None, "reference_range": None, "dates": {},
+                               "observations": (_obs({"d": "2026-01-01"}),)})
+    assert '"observations":[{"dates":{"d":"2026-01-01"},"source_node":"n1","source_record":null,"value":' \
+        in canonical_json(m.replace_node(obs))
+
+
+def test_bad_iso_date_rejected_by_model():
+    for bad in ("2026-13-01", "2026-1-1", "2026-01-01T00:00"):
+        with pytest.raises(Exception, match="dates"):
+            Node(id="a", type="T", role="r", dates={"onset": bad})
+    assert Node(id="a", type="T", role="r", dates={"onset": "2024-02-29"}).dates["onset"] == "2024-02-29"
+
+
+def test_test_identity_is_not_collected_and_frozen():
+    from semgen.model import TestIdentity
+    t = TestIdentity(system="s", code="c")
+    assert TestIdentity.__test__ is False and (t.method, t.specimen) == (None, None)
+    with pytest.raises(Exception):
+        t.code = "d"

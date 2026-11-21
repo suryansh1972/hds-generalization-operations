@@ -1,15 +1,62 @@
-# worktrees
+# --- worktrees / local tooling ---------------------------------------------------------------------------------
 .worktrees/
-.claude/worktrees/
+.claude/
+.superpowers/
+.vscode/
+.idea/
+.DS_Store
 
-# python
+# --- python ----------------------------------------------------------------------------------------------------
 .venv/
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 .pytest_cache/
 .hypothesis/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# generated data (SNOMED cache, run outputs)
-data/cache/
+# --- secrets and local settings --------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- restricted / licensed data: NEVER commit -------------------------------------------------------------------
+# SNOMED CT RF2 releases (licensed); only the synthetic fixture release under tests/fixtures/rf2/ is tracked.
+SnomedCT_*/
+*.zip
+sct2_*.txt
+der2_*.txt
+xsct2_*.txt
+xder2_*.txt
+!tests/fixtures/rf2/*.txt
+# parsed-release caches, external evidence files, run outputs
+data/cache/*
+!data/cache/.gitkeep
+data/external/*
+!data/external/.gitkeep
+!data/external/README.md
 runs/
-data/external/
+*.pkl
+*.sqlite
+*.sqlite3
+*.db
+# patient-level clinical data (MIMIC and any other real records)
+data/motifs/*
+!data/motifs/synthetic_motifs.json
+!data/motifs/README.md
+*mimic*
+!tests/test_mimic_sunflower.py
+*.jsonl.gz
+# golden outputs derived from the licensed SNOMED CT release (kept locally only)
+tests/fixtures/golden/real_*/
+tests/fixtures/golden/head/real_*/
+
+# --- design documents (kept locally, not published) -----------------------------------------------------------
+docs/

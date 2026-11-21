@@ -1,4 +1,9 @@
-"""DRAFT YAML configuration: ladders, floor source and relation hierarchy, validated at load."""
+"""DRAFT YAML configuration: pinned attribute definitions and the pinned external sources, validated at load.
+
+Relative paths in a config file are resolved against the directory of that file and stored absolute, so a config
+works wherever it is installed. External evidence (Mayo DB, UCUM essence) may also be located by ``semgen.settings``
+(``SEMGEN_MAYO_DB`` etc.); the sha256 pins always come from the config.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -7,251 +12,145 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, StrictInt, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
-from semgen.model import Interval
+from semgen.settings import default_config_path
 
 
 class ConfigError(Exception):
     """Raised when the configuration file is missing, unparsable or invalid."""
 
 
-class Ladder(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    name: str
-    unit: str
-    rungs: tuple[Interval, ...]
-    applies_to_concepts: tuple[str, ...] = ()
-    applies_to_attr: str | None = None
-
-    def next_rung(self, current: Interval) -> Interval | None:
-        """Narrowest rung strictly containing `current`; None if none or unit differs."""
-        if current.unit != self.unit:
-            return None
-        cands = [r for r in self.rungs if r.strictly_contains(current)]
-        for c in cands:
-            if all(o.contains(c) for o in cands):
-                return c
-        return None
-
-
-class RelationHierarchy(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    parents: dict[str, str]
-
-    def parent(self, rel: str) -> str | None:
-        return self.parents.get(rel)
-
-    def leq(self, narrow: str, broad: str) -> bool:
-        """Reflexive-transitive: is `broad` equal to or an ancestor of `narrow`?"""
-        seen: set[str] = set()
-        cur: str | None = narrow
-        while cur is not None and cur not in seen:
-            if cur == broad:
-                return True
-            seen.add(cur)
-            cur = self.parents.get(cur)
-        return False
-
-
-class FloorSourceConfig(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["phecodex"]
-    commit: str
-    files: dict[str, str]
-    phecode_level: Literal["first_decimal", "integer"] = "first_decimal"
-    icd10_map_refset: str = "447562003"
-    map_rules: tuple[str, ...] = ("TRUE", "OTHERWISE TRUE")
-    licence: str = "unconfirmed"
-
-
-_COMMIT_RE = re.compile(r"[0-9a-f]{40}")
 _SHA_RE = re.compile(r"[0-9a-f]{64}")
 
 
-def _build_floor_source(raw: Any) -> FloorSourceConfig:
-    if not isinstance(raw, dict):
-        raise ConfigError("floor_source must be a mapping")
-    try:
-        src = FloorSourceConfig.model_validate(raw)
-    except ValidationError as e:
-        raise ConfigError(f"invalid floor_source: {e}") from e
-    if not _COMMIT_RE.fullmatch(src.commit):
-        raise ConfigError(f"floor_source commit {src.commit!r} is not 40 lowercase hex")
-    if not src.map_rules:
-        raise ConfigError("floor_source map_rules must not be empty")
-    if not src.icd10_map_refset.isdigit():
-        raise ConfigError(f"floor_source icd10_map_refset {src.icd10_map_refset!r} must be all digits")
-    if not src.files:
-        raise ConfigError("floor_source files must not be empty")
-    for name, sha in src.files.items():
-        if not _SHA_RE.fullmatch(sha):
-            raise ConfigError(f"floor_source sha256 for {name!r} is not 64 lowercase hex")
-    return src
-
-
-class ExcludedRoot(BaseModel):
+class AttributeDefinition(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    fsn: str
-    reason: str
+    about: Literal["patient", "node_concept"]
 
 
-class SnomedBoundaryConfig(BaseModel):
+class MayoConfig(BaseModel):
+    """Where the Mayo reference-range DB lives (env ``SEMGEN_MAYO_DB`` overrides ``path``) and its pinned sha256.
+
+    ``path`` and ``test_map`` are optional (absolute after loading). Without a DB bucketing blocks
+    ``mayo_unavailable``; without a test map every Mayo lookup blocks ``no_test_mapping``.
+    """
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    max_descendants: StrictInt
-    characteristic_type: Literal["inferred"]
-    excluded_ancestor_roots: tuple[ExcludedRoot, ...]
+    path: str | None = None
+    sha256: str
+    test_map: str | None = None
 
 
-class FloorPolicyConfig(BaseModel):
+class UcumConfig(BaseModel):
+    """Pinned UCUM essence file (A1 unit validation, rev 4); ``path`` is optional (env ``SEMGEN_UCUM_ESSENCE``)."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    mode: Literal["snomed_boundary", "phecodex"]
-    snomed_boundary: SnomedBoundaryConfig | None = None
-
-
-def _build_floor_policy(raw: Any) -> FloorPolicyConfig:
-    if not isinstance(raw, dict):
-        raise ConfigError("floor_policy is required and must be a mapping")
-    if raw.get("mode") not in ("snomed_boundary", "phecodex"):
-        raise ConfigError(f"floor_policy mode {raw.get('mode')!r} must be 'snomed_boundary' or 'phecodex'")
-    try:
-        fp = FloorPolicyConfig.model_validate(raw)
-    except ValidationError as e:
-        raise ConfigError(f"invalid floor_policy: {e}") from e
-    b = fp.snomed_boundary
-    if fp.mode == "snomed_boundary" and b is None:
-        raise ConfigError("floor_policy mode snomed_boundary requires a snomed_boundary block")
-    if b is not None and b.max_descendants < 1:
-        raise ConfigError(f"floor_policy snomed_boundary max_descendants {b.max_descendants} must be >= 1")
-    return fp
+    path: str | None = None
+    sha256: str
 
 
 class GenConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     status: str
-    lvef_convention: str
-    floor_policy: FloorPolicyConfig
-    floor_source: FloorSourceConfig | None = None
-    attribute_flags: dict[str, Literal["concept_dependent", "concept_independent"]]
-    value_ladders: tuple[Ladder, ...]
-    attr_ladders: tuple[Ladder, ...]
-    time_ladder: Ladder
-    relations: RelationHierarchy
+    attribute_definitions: dict[str, AttributeDefinition]
+    attribute_definitions_sha256: str
+    mayo: MayoConfig
+    ucum: UcumConfig | None = None
     protected_roles: frozenset[str]
     allow_drop_absent: bool
-    max_depth: int
-    max_candidates: int
-
-    def value_ladder_for(self, code: str) -> Ladder | None:
-        return next((l for l in self.value_ladders if code in l.applies_to_concepts), None)
-
-    def attr_ladder_for(self, name: str) -> Ladder | None:
-        return next((l for l in self.attr_ladders if l.applies_to_attr == name), None)
 
     def attr_is_concept_dependent(self, name: str) -> bool:
-        return self.attribute_flags.get(name, "concept_dependent") != "concept_independent"
+        """Only an attribute defined ``about: patient`` is independent; an unlisted name is ``node_concept``."""
+        d = self.attribute_definitions.get(name)
+        return d is None or d.about != "patient"
 
 
-def _rung(raw: Any, unit: str, bounds: str, where: str) -> Interval:
-    if isinstance(raw, (list, tuple)):
-        if len(raw) != 2:
-            raise ConfigError(f"{where}: rung {raw!r} must be [lo, hi]")
-        data: dict[str, Any] = {"lo": raw[0], "hi": raw[1],
-                                "lo_closed": bounds[0] == "[", "hi_closed": bounds[1] == "]"}
-    elif isinstance(raw, dict):
-        data = {"lo_closed": bounds[0] == "[", "hi_closed": bounds[1] == "]", **raw}
-    else:
-        raise ConfigError(f"{where}: invalid rung {raw!r}")
-    data.setdefault("unit", unit)
-    if data["unit"] != unit:
-        raise ConfigError(f"{where}: rung unit {data['unit']!r} differs from ladder unit {unit!r}")
+def _resolve(base: Path, p: str | None) -> str | None:
+    """``p`` made absolute against the config file's directory (None stays None)."""
+    if p is None:
+        return None
+    q = Path(p).expanduser()
+    return str(q if q.is_absolute() else (base / q).resolve())
+
+
+def _load_attribute_definitions(raw: Any, base: Path) -> tuple[dict[str, AttributeDefinition], str]:
+    """Read the pinned attribute-definitions file; its sha256 must match the config before it is parsed."""
+    if not isinstance(raw, dict) or set(raw) != {"path", "sha256"}:
+        raise ConfigError("attribute_definitions must be a mapping with exactly 'path' and 'sha256'")
+    expected = raw["sha256"]
+    if not isinstance(expected, str) or not _SHA_RE.fullmatch(expected):
+        raise ConfigError("attribute_definitions sha256 must be 64 lowercase hex")
+    p = Path(str(_resolve(base, str(raw["path"]))))
     try:
-        return Interval.model_validate(data)
+        data = p.read_bytes()
+    except OSError as e:
+        raise ConfigError(f"cannot read attribute definitions {p}: {e}") from e
+    got = hashlib.sha256(data).hexdigest()
+    if got != expected:
+        raise ConfigError(f"attribute definitions {p} have sha256 {got}, expected {expected}")
+    try:
+        doc = yaml.safe_load(data.decode("utf-8"))
+    except (UnicodeDecodeError, yaml.YAMLError) as e:
+        raise ConfigError(f"cannot parse attribute definitions {p}: {e}") from e
+    if not isinstance(doc, dict) or set(doc) != {"attributes"} or not isinstance(doc["attributes"], dict):
+        raise ConfigError(f"attribute definitions {p} must be a mapping with exactly one key 'attributes'")
+    try:
+        defs = {str(k): AttributeDefinition.model_validate(v) for k, v in doc["attributes"].items()}
     except ValidationError as e:
-        raise ConfigError(f"{where}: invalid rung {raw!r}: {e}") from e
+        raise ConfigError(f"invalid attribute definition in {p}: {e}") from e
+    return defs, got
 
 
-def _disjoint(a: Interval, b: Interval) -> bool:
-    def before(x: Interval, y: Interval) -> bool:
-        if x.hi is None or y.lo is None:
-            return False
-        return x.hi < y.lo or (x.hi == y.lo and not (x.hi_closed and y.lo_closed))
-    return before(a, b) or before(b, a)
+def _build_mayo(raw: Any, base: Path) -> MayoConfig:
+    if not isinstance(raw, dict):
+        raise ConfigError("mayo is required and must be a mapping with 'sha256' and optional 'path' and 'test_map'")
+    try:
+        m = MayoConfig.model_validate(raw)
+    except ValidationError as e:
+        raise ConfigError(f"invalid mayo: {e}") from e
+    if not _SHA_RE.fullmatch(m.sha256):
+        raise ConfigError("mayo sha256 must be 64 lowercase hex")
+    return m.model_copy(update={"path": _resolve(base, m.path), "test_map": _resolve(base, m.test_map)})
 
 
-def _build_ladder(name: str, raw: dict[str, Any], *, time: bool = False) -> Ladder:
-    where = f"ladder {name}"
-    unit = raw["unit"]
-    bounds = raw.get("bounds", "[)")
-    if bounds not in ("[)", "(]", "[]"):
-        raise ConfigError(f"{where}: bounds {bounds!r} must be '[)', '(]' or '[]'")
-    rungs = tuple(_rung(r, unit, bounds, where) for r in raw["rungs"])
-    if time:
-        for r in rungs:
-            if r.lo is not None and r.lo < 0:
-                raise ConfigError(f"{where}: negative lower bound {r.lo}")
-    for i, a in enumerate(rungs):
-        for b in rungs[i + 1:]:
-            if not (a.contains(b) or b.contains(a) or _disjoint(a, b)):
-                raise ConfigError(f"{where}: rungs {a.to_json()} and {b.to_json()} are not laminar")
-    return Ladder(name=name, unit=unit, rungs=rungs,
-                  applies_to_concepts=tuple(raw.get("applies_to_concepts", ())),
-                  applies_to_attr=raw.get("applies_to_attr"))
-
-
-def _check_cycles(parents: dict[str, str]) -> None:
-    for start in parents:
-        seen = {start}
-        cur = parents[start]
-        while cur in parents:
-            if cur in seen:
-                raise ConfigError(f"relation_parents contains a cycle through {cur!r}")
-            seen.add(cur)
-            cur = parents[cur]
-        if cur == start:
-            raise ConfigError(f"relation_parents contains a cycle through {cur!r}")
-
-
-def _parse(raw: dict[str, Any]) -> GenConfig:
-    floor_policy = _build_floor_policy(raw.get("floor_policy"))
-    floor_source = _build_floor_source(raw["floor_source"]) if raw.get("floor_source") is not None else None
-    if floor_policy.mode == "phecodex" and floor_source is None:
-        raise ConfigError("floor_source is required when floor_policy mode is phecodex")
-    max_candidates = raw["max_candidates"]
-    if not isinstance(max_candidates, int) or isinstance(max_candidates, bool) or max_candidates < 1:
-        raise ConfigError(f"max_candidates {max_candidates!r} must be an integer >= 1")
-    # Build ladders in the controller-specified check order: unit, negative, laminar (per ladder).
-    value_ladders = tuple(_build_ladder(k, v) for k, v in raw["value_ladders"].items())
-    attr_ladders = tuple(_build_ladder(k, v) for k, v in raw["attr_ladders"].items())
-    time_ladder = _build_ladder("time", raw["time_ladder"], time=True)
+def _parse(raw: dict[str, Any], base: Path) -> GenConfig:
+    if "floor_policy" in raw:
+        raise ConfigError("floor_policy is no longer configurable: concept lift is derived from the SNOMED CT release")
+    attribute_definitions, attribute_definitions_sha256 = _load_attribute_definitions(raw.get("attribute_definitions"), base)
+    for gone, why in (("optimuskg", "attribute deletion is decided by the cohort definition alone"),
+                      ("panel_sources", "A2 panel aggregation was removed")):
+        if gone in raw:
+            raise ConfigError(f"{gone} is no longer supported: {why}")
+    mayo = _build_mayo(raw.get("mayo"), base)
+    try:
+        ucum = None if raw.get("ucum") is None else UcumConfig.model_validate(raw["ucum"])
+    except ValidationError as e:
+        raise ConfigError(f"invalid ucum: {e}") from e
+    if ucum is not None and not _SHA_RE.fullmatch(ucum.sha256):
+        raise ConfigError(f"ucum {ucum.path}: sha256 must be 64 lowercase hex")
+    if ucum is not None:
+        ucum = ucum.model_copy(update={"path": _resolve(base, ucum.path)})
     if raw["negation_policy"]["allow_drop_absent"] is not False:
         raise ConfigError("negation_policy.allow_drop_absent: only false is supported (not supported: true)")
     if set(raw["protected_roles"]) != {"patient", "anchor"}:
         raise ConfigError("protected_roles must be exactly {patient, anchor}")
     if not str(raw["status"]).startswith("DRAFT"):
         raise ConfigError(f"status {raw['status']!r} must start with 'DRAFT'")
-    parents = dict(raw["relation_parents"])
-    _check_cycles(parents)
     return GenConfig(
-        status=raw["status"], lvef_convention=raw["lvef_convention"],
-        floor_policy=floor_policy, floor_source=floor_source,
-        attribute_flags=raw["attribute_flags"], value_ladders=value_ladders,
-        attr_ladders=attr_ladders, time_ladder=time_ladder,
-        relations=RelationHierarchy(parents=parents),
-        protected_roles=frozenset(raw["protected_roles"]),
-        allow_drop_absent=raw["negation_policy"]["allow_drop_absent"],
-        max_depth=raw["max_depth"], max_candidates=max_candidates)
+        status=raw["status"],
+        attribute_definitions=attribute_definitions, attribute_definitions_sha256=attribute_definitions_sha256,
+        mayo=mayo, ucum=ucum, protected_roles=frozenset(raw["protected_roles"]),
+        allow_drop_absent=raw["negation_policy"]["allow_drop_absent"])
 
 
-def load_config(path: str | Path) -> GenConfig:
-    p = Path(path)
+def load_config(path: str | Path | None = None) -> GenConfig:
+    """Load and validate a config file (default: the packaged ``semgen/resources/generalization.yaml``)."""
+    p = Path(path) if path is not None else default_config_path()
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError) as e:
@@ -259,12 +158,12 @@ def load_config(path: str | Path) -> GenConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"config {p} must be a mapping")
     try:
-        return _parse(raw)
+        return _parse(raw, p.resolve().parent)
     except ConfigError:
         raise
     except (ValidationError, KeyError, TypeError, AttributeError, ValueError) as e:
         raise ConfigError(f"invalid config {p}: {e!r}") from e
 
 
-def config_sha256(path: str | Path) -> str:
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+def config_sha256(path: str | Path | None = None) -> str:
+    return hashlib.sha256(Path(path if path is not None else default_config_path()).read_bytes()).hexdigest()

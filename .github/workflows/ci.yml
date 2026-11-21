@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --locked --group dev
+      - name: Ruff
+        run: uv run ruff check src tests
+      - name: Mypy
+        run: uv run mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked --group dev
+      # No licensed or restricted data in CI: SEMGEN_RF2_DIR etc. are unset, so `snomed` tests skip.
+      - name: Tests (synthetic data only)
+        run: uv run pytest -m "not snomed" -q -rs
+
+  wheel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: uv build
+      - name: Install the wheel in a clean environment outside the checkout (core only)
+        run: |
+          WHEEL=$(ls "$PWD"/dist/semgen-*.whl)
+          cd "$RUNNER_TEMP"
+          uv venv core && uv pip install --python core "$WHEEL"
+          core/bin/python - <<'PY'
+          import importlib.util, json, semgen
+          from semgen import SemgenEngine, Settings, load_config
+          assert importlib.util.find_spec("litestar") is None
+          cfg = load_config()
+          assert cfg.status.startswith("DRAFT")
+          print(semgen.__version__, json.dumps(Settings.from_env().describe()))
+          PY
+          core/bin/semgen --help
+          core/bin/semgen run --help
+      - name: Install the wheel with the api extra and smoke-test the app
+        run: |
+          WHEEL=$(ls "$PWD"/dist/semgen-*.whl)
+          cd "$RUNNER_TEMP"
+          uv venv api && uv pip install --python api "${WHEEL}[api]" httpx
+          api/bin/python - <<'PY'
+          from litestar.testing import TestClient
+          from semgen.api import create_app
+          with TestClient(create_app()) as c:
+              assert c.get("/health").json()["status"] == "ok"
+              assert c.get("/schema/openapi.json").status_code == 200
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

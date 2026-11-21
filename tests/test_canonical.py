@@ -2,10 +2,11 @@ import json
 import math
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from semgen.canonical import canonical_json, motif_hash
-from semgen.model import Edge, Interval
+from semgen.model import Interval
 
 
 def test_hash_is_short_hex(fake_m1):

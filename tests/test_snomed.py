@@ -70,7 +70,7 @@ def test_direction_helpers(fake_h):
     assert MALIG in fake_h.ancestors(BRCA) and BRCA not in fake_h.ancestors(BRCA)
     assert BRCA in fake_h.ancestors_or_self(BRCA)
     assert not fake_h.is_descendant_or_self(NEO_BREAST, MALIG)
-    assert fake_h.depth(BRCA) == 3 and fake_h.depth(ROOT) == 0
+    assert fake_h.depth(BRCA) == 4 and fake_h.depth(ROOT) == 0
     with pytest.raises(ValueError):
         fake_h.depth(RA_OLD_PARENT)
 

@@ -1,0 +1,6 @@
+# Attribute definitions (design §5.3), DRAFT; pinned by sha256 in generalization.yaml and the run header.
+# about: patient      -> describes the patient, independent of the node's concept (may be deleted; lift allowed)
+# about: node_concept -> depends on the node's concept (protected). An unlisted attribute is node_concept.
+attributes:
+  age_at_dx:       {about: patient}
+  cumulative_dose: {about: node_concept}

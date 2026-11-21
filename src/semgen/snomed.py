@@ -11,22 +11,22 @@ from pathlib import Path
 
 import polars as pl
 
+from semgen.settings import default_cache_dir, env_path
+
 ROOT_ID = "138875005"
 IS_A = "116680003"
 INFERRED = "900000000000011006"
 CACHE_VERSION = "2"
 _TAG_RE = re.compile(r"\(([^()]+)\)$")
 FSN_TYPE = "900000000000003001"
-DEFAULT_RF2_DIR = Path(
-    "/Users/suryanshshivaprasad/Documents/HDX/SnomedCT_InternationalRF2_PRODUCTION_20260201T120000Z"
-    "/Snapshot/Terminology"
-)
-REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CACHE_DIR = Path(os.environ.get("SEMGEN_CACHE_DIR") or REPO_ROOT / "data" / "cache")
 
 
 class FsnError(Exception):
     """Raised when an FSN label does not resolve to exactly one active concept."""
+
+
+class HierarchyCycleError(ValueError):
+    """Raised when the IS-A input contains a cycle (malformed hierarchy)."""
 
 
 class Hierarchy:
@@ -99,12 +99,19 @@ class Hierarchy:
             raise FsnError(f"FSN {label!r} matched {len(hits)} active concepts (need exactly 1)")
         return hits[0]
 
+    @property
+    def n_active(self) -> int:
+        """Number of active concepts (the N of intrinsic information content)."""
+        return len(self._active)
+
     def ancestors(self, c: str) -> frozenset[str]:
-        """Strict transitive closure over parents (iterative, memoised)."""
+        """Strict transitive closure over parents (iterative, memoised). A cycle (malformed input; IS-A in a
+        released hierarchy is acyclic) raises ``HierarchyCycleError`` instead of looping."""
         memo = self._memo
         if c in memo:
             return memo[c]
         stack = [c]
+        expanding: set[str] = set()   # nodes whose parents are being resolved: a chain of IS-A steps from c
         while stack:
             node = stack[-1]
             if node in memo:
@@ -112,8 +119,12 @@ class Hierarchy:
                 continue
             pending = [p for p in self.parents(node) if p not in memo]
             if pending:
-                stack.extend(pending)  # IS-A is acyclic, so this terminates
+                if node in expanding or any(p in expanding for p in pending):
+                    raise HierarchyCycleError(f"IS-A cycle through {node!r}")
+                expanding.add(node)
+                stack.extend(pending)
                 continue
+            expanding.discard(node)
             acc: set[str] = set()
             for p in self.parents(node):
                 acc.add(p)
@@ -203,9 +214,19 @@ class Hierarchy:
         raise ValueError(f"concept {c!r} has no IS-A path to {ROOT_ID}")
 
 
-def default_rf2_dir() -> Path:
-    env = os.environ.get("SEMGEN_RF2_DIR")
-    return Path(env) if env else DEFAULT_RF2_DIR
+def default_rf2_dir() -> Path | None:
+    """The release named by ``SEMGEN_RF2_DIR`` (resolved by ``terminology_dir``), or None when unset."""
+    env = env_path("SEMGEN_RF2_DIR")
+    return terminology_dir(env) if env is not None else None
+
+
+def terminology_dir(path: str | Path) -> Path:
+    """The ``Snapshot/Terminology`` directory of a release given as its root, its ``Snapshot`` or that directory."""
+    p = Path(path).expanduser()
+    for cand in (p / "Snapshot" / "Terminology", p / "Terminology"):
+        if cand.is_dir():
+            return cand
+    return p
 
 
 def _find(d: Path, pattern: str) -> Path:
@@ -221,8 +242,9 @@ def _read(path: Path, cols: list[str]) -> pl.DataFrame:
     )
 
 
-def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -> Hierarchy:
-    d = Path(terminology_dir).resolve()
+def load_rf2(rf2_dir: str | Path, cache_dir: str | Path | None = None) -> Hierarchy:
+    """Load (or read from the cache) the inferred hierarchy of the release at ``rf2_dir`` (see ``terminology_dir``)."""
+    d = terminology_dir(rf2_dir).resolve()
     # sct2_Relationship_ cannot match StatedRelationship or RelationshipConcreteValues_.
     cf = _find(d, "sct2_Concept_Snapshot_*.txt")
     df = _find(d, "sct2_Description_Snapshot*.txt")
@@ -236,7 +258,7 @@ def load_rf2(terminology_dir: str | Path, cache_dir: str | Path | None = None) -
         st = f.stat()
         sig.append(f"{f.name}|{st.st_size}|{st.st_mtime_ns}")
     key = hashlib.sha256("\n".join(sig).encode()).hexdigest()[:12]
-    cdir = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
+    cdir = Path(cache_dir) if cache_dir is not None else default_cache_dir()
     cache = cdir / f"snomed_{release}_{key}.pkl"
     if cache.exists():
         try:
